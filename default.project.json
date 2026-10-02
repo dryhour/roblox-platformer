@@ -5,6 +5,27 @@
     "ReplicatedStorage": {
       "Shared": {
         "$path": "src/shared"
+      },
+      "Remotes": {
+        "$className": "Folder",
+        "SetReady": {
+          "$className": "RemoteEvent"
+        },
+        "ChooseColor": {
+          "$className": "RemoteEvent"
+        },
+        "ChangeSetting": {
+          "$className": "RemoteEvent"
+        },
+        "FireBeam": {
+          "$className": "RemoteEvent"
+        },
+        "Announce": {
+          "$className": "RemoteEvent"
+        }
+      },
+      "MatchState": {
+        "$className": "Configuration"
       }
     },
     "ServerScriptService": {
@@ -12,7 +33,15 @@
         "$path": "src/server"
       }
     },
+    "ServerStorage": {
+      "Maps": {
+        "$path": "src/maps"
+      }
+    },
     "StarterPlayer": {
+      "$properties": {
+        "EnableMouseLockOption": false
+      },
       "StarterPlayerScripts": {
         "Client": {
           "$path": "src/client"
@@ -26,9 +55,6 @@
       "$properties": {
         "FilteringEnabled": true,
         "Gravity": 110
-      },
-      "Map": {
-        "$path": "src/map/Map.model.json"
       }
     },
     "Lighting": {
