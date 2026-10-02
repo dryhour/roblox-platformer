@@ -1,29 +1,26 @@
-local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Config = require(ReplicatedStorage.Shared.Config)
+local Economy = require(ReplicatedStorage.Shared.Economy)
 local Arena = require(script.Parent.Arena)
 local Builder = require(script.Parent.Builder)
 
 -- A duel station in the lobby: a stage with two glowing squares (pink for Left, blue for Right)
--- in front of an arena box. Walk into a square to take that side; when both are filled, the
--- match starts and the two players float beside the box on hover pads to watch their balls
--- fight. Between matches the box shows a VS screen with the faces of whoever is waiting. At a
--- bot station, a robot stands in the blue square. MatchService runs the stations.
+-- in front of an arena box. Press Join (E) at a square to take that side and wait there; when
+-- both sides are taken, the match starts and the two players float beside the box on hover pads
+-- to watch their balls fight. Between matches the box shows a VS screen with the faces of
+-- whoever is waiting, and a sign shows how many have joined. MatchService runs the stations.
 local Station = {}
-
-export type Occupant = Player | "Bot"
 
 export type Station = {
 	id: string,
 	arena: Arena.Arena,
-	squares: { [string]: BasePart }, -- stand inside one to take that side
-	stands: { [string]: CFrame }, -- where each side's feet go during a match, facing the front
-	exits: { [string]: CFrame }, -- where each side's feet go after a match
-	bot: Model?, -- the robot at a bot station
-	botHome: CFrame?, -- the robot's feet between matches
-	-- Updates the squares, sign and VS screen. `busy` while a match is on.
-	show: (occupants: { [string]: Occupant? }, busy: boolean) -> (),
+	prompts: { [string]: ProximityPrompt }, -- Join, one per square
+	seats: { [string]: CFrame }, -- where a waiting player's feet go, facing out
+	stands: { [string]: CFrame }, -- where each side's feet go during a match, facing out
+	exits: { [string]: CFrame }, -- where each side's feet go after leaving or a match
+	-- Updates the squares, prompts, sign and VS screen. `busy` while a match is on.
+	show: (waiting: { [string]: Player? }, busy: boolean) -> (),
 }
 
 local SIDES = { "Left", "Right" }
@@ -45,59 +42,57 @@ local STAGE = Color3.fromRGB(26, 36, 70)
 local TILE = Color3.fromRGB(34, 46, 88)
 local SCREEN = Color3.fromRGB(45, 50, 205)
 local STRIPE = Color3.fromRGB(70, 90, 235)
+local GOLD = Color3.fromRGB(255, 205, 50)
 local HEADSHOT = "rbxthumb://type=AvatarHeadShot&id=%d&w=150&h=150"
 
 local VS_FONT = Font.new("rbxasset://fonts/families/Michroma.json", Enum.FontWeight.Bold, Enum.FontStyle.Italic)
+local SIGN_FONT = Font.new("rbxasset://fonts/families/Michroma.json", Enum.FontWeight.Bold)
 
 type Square = { tile: Part, beam: Part }
 type Face = { image: ImageLabel, label: TextLabel }
 
--- A robot for bot stations: a default R15 avatar in grey metal.
-local function makeRobot(): Model
-	local ok, robot = pcall(function()
-		local description = Instance.new("HumanoidDescription")
-		local metal = Color3.fromRGB(120, 130, 145)
-		description.HeadColor = Color3.fromRGB(70, 75, 90)
-		description.TorsoColor = metal
-		description.LeftArmColor = metal
-		description.RightArmColor = metal
-		description.LeftLegColor = Color3.fromRGB(70, 75, 90)
-		description.RightLegColor = Color3.fromRGB(70, 75, 90)
-		return Players:CreateHumanoidModelFromDescription(description, Enum.HumanoidRigType.R15)
-	end)
-	if not ok then
-		-- Avatar loading can fail (e.g. offline in Studio); a box robot will do.
-		local model = Instance.new("Model")
-		local root = Instance.new("Part")
-		root.Name = "HumanoidRootPart"
-		root.Size = Vector3.new(2, 2, 1)
-		root.Transparency = 1
-		root.Parent = model
-		local body = Instance.new("Part")
-		body.Name = "Body"
-		body.Size = Vector3.new(3, 5, 1.5)
-		body.Color = Color3.fromRGB(120, 130, 145)
-		body.Material = Enum.Material.Metal
-		body.CFrame = root.CFrame * CFrame.new(0, -0.5, 0)
-		body.Parent = model
-		local weld = Instance.new("WeldConstraint")
-		weld.Part0 = root
-		weld.Part1 = body
-		weld.Parent = root
-		model.PrimaryPart = root
-		robot = model
+-- The floating sign over the squares: "1/2 PLAYERS" and "Win 100" with a coin.
+local function makeSign(b: Builder.Builder, position: Vector3): (BillboardGui, TextLabel)
+	local holder = b:ghost(b:block(Vector3.one, position, Color3.new(), "Sign"), 1)
+	local sign = Instance.new("BillboardGui")
+	sign.Size = UDim2.fromScale(13, 4.4)
+	sign.LightInfluence = 0
+	sign.MaxDistance = 250
+	sign.Parent = holder
+
+	local function line(text: string, y: number, height: number, color: Color3): TextLabel
+		local label = Instance.new("TextLabel")
+		label.Position = UDim2.fromScale(0, y)
+		label.Size = UDim2.fromScale(1, height)
+		label.BackgroundTransparency = 1
+		label.FontFace = SIGN_FONT
+		label.Text = text
+		label.TextScaled = true
+		label.TextColor3 = color
+		label.Parent = sign
+		local stroke = Instance.new("UIStroke")
+		stroke.Thickness = 3
+		stroke.Color = Color3.fromRGB(15, 15, 30)
+		stroke.Parent = label
+		return label
 	end
-	robot.Name = "Bot"
-	local humanoid = robot:FindFirstChildOfClass("Humanoid")
-	if humanoid then
-		humanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
-	end
-	for _, part in robot:GetDescendants() do
-		if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
-			part.Material = Enum.Material.Metal
-		end
-	end
-	return robot
+	local players = line("0/2 PLAYERS", 0, 0.55, Color3.new(1, 1, 1))
+	local win = line(`Win {Economy.WIN_COINS}`, 0.58, 0.42, GOLD)
+	win.Size = UDim2.fromScale(0.8, 0.42)
+	local coin = Instance.new("Frame")
+	coin.AnchorPoint = Vector2.new(0, 0.5)
+	coin.Position = UDim2.fromScale(0.8, 0.79)
+	coin.Size = UDim2.fromScale(0.11, 0.34)
+	coin.BackgroundColor3 = GOLD
+	coin.Parent = sign
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(1, 0)
+	corner.Parent = coin
+	local rim = Instance.new("UIStroke")
+	rim.Thickness = 3
+	rim.Color = Color3.fromRGB(200, 120, 20)
+	rim.Parent = coin
+	return sign, players
 end
 
 -- The VS screen on the back of the box, with a face for each side at the top.
@@ -170,7 +165,7 @@ end
 
 -- Builds a station named `id` (its arena gets the same name). `cframe` is on the floor at the
 -- middle of the box's bottom edge, looking into the box.
-function Station.build(b: Builder.Builder, id: string, cframe: CFrame, hasBot: boolean): Station
+function Station.build(b: Builder.Builder, id: string, cframe: CFrame): Station
 	local function at(x: number, y: number, z: number): CFrame
 		return cframe * CFrame.new(x, y, z)
 	end
@@ -186,6 +181,8 @@ function Station.build(b: Builder.Builder, id: string, cframe: CFrame, hasBot: b
 	local top = STAGE_SIZE.Y
 
 	local squares: { [string]: Square } = {}
+	local prompts: { [string]: ProximityPrompt } = {}
+	local seats: { [string]: CFrame } = {}
 	local stands: { [string]: CFrame } = {}
 	local exits: { [string]: CFrame } = {}
 	for _, side in SIDES do
@@ -205,11 +202,21 @@ function Station.build(b: Builder.Builder, id: string, cframe: CFrame, hasBot: b
 			edge.Material = Enum.Material.Neon
 			edge.CanCollide = false
 		end
-		-- A column of light while someone stands in the square.
+		-- A column of light while someone waits in the square.
 		local beam = b:cylinder(24, SQUARE_SIZE * 0.8, at(x, top + 12, SQUARE_Z).Position, color, "Beam")
 		b:ghost(beam, 1)
 		beam.Material = Enum.Material.Neon
 		squares[side] = { tile = tile, beam = beam }
+
+		local prompt = Instance.new("ProximityPrompt")
+		prompt.ActionText = "Join"
+		prompt.ObjectText = ""
+		prompt.HoldDuration = 0
+		-- The squares are 11 studs apart, so someone waiting in one doesn't get the other's prompt.
+		prompt.MaxActivationDistance = 8
+		prompt.RequiresLineOfSight = false
+		prompt.Parent = tile
+		prompts[side] = prompt
 
 		-- The hover pad beside the box, with a faint light under it.
 		local padX = PAD_X * sign
@@ -219,67 +226,46 @@ function Station.build(b: Builder.Builder, id: string, cframe: CFrame, hasBot: b
 		b:ghost(glow, 0.88)
 		glow.Material = Enum.Material.Neon
 
+		seats[side] = facingOut(x, top + 0.2, SQUARE_Z)
 		stands[side] = facingOut(padX, PAD_TOP, PAD_Z)
 		exits[side] = at(x, 0, EXIT_Z) -- facing the box
 	end
 
-	local sign = b:sign(at(0, 8, SQUARE_Z).Position, "", 9, 3)
-	sign.FontFace = VS_FONT
-	local signGui = sign.Parent :: BillboardGui
+	local signGui, signText = makeSign(b, at(0, 8.5, SQUARE_Z).Position)
 	local screen, faces = makeScreen(arena.backdrop)
 
-	local bot, botHome = nil, nil
-	if hasBot then
-		botHome = facingOut(SQUARE_X, top + 0.2, SQUARE_Z)
-		bot = makeRobot()
-		local root = bot:FindFirstChild("HumanoidRootPart") :: BasePart
-		root.Anchored = true
-		local humanoid = bot:FindFirstChildOfClass("Humanoid")
-		local height = if humanoid then humanoid.HipHeight + root.Size.Y / 2 else 3
-		bot:PivotTo((botHome :: CFrame) + Vector3.new(0, height, 0))
-		bot.Parent = b.model
-	end
-
-	local function show(occupants: { [string]: Occupant? }, busy: boolean)
+	local function show(waiting: { [string]: Player? }, busy: boolean)
 		local count = 0
 		for _, side in SIDES do
-			local occupant = occupants[side]
+			local player = waiting[side]
 			local square = squares[side]
-			local filled = occupant ~= nil and not busy
-			if occupant then
+			local filled = player ~= nil and not busy
+			if player then
 				count += 1
 			end
 			square.tile.Material = if filled then Enum.Material.Neon else Enum.Material.SmoothPlastic
 			square.tile.Color = if filled then Config.SIDE_COLORS[side] else TILE
 			square.tile.Transparency = if filled then 0.3 else 0
 			square.beam.Transparency = if filled then 0.82 else 1
+			prompts[side].Enabled = not busy and player == nil
 
 			local face = faces[side]
-			if typeof(occupant) == "Instance" and occupant:IsA("Player") then
-				face.image.Image = string.format(HEADSHOT, occupant.UserId)
-				face.label.Text = ""
-			else
-				face.image.Image = ""
-				face.label.Text = if occupant == "Bot" then "🤖" else "?"
-			end
+			face.image.Image = if player then string.format(HEADSHOT, player.UserId) else ""
+			face.label.Text = if player then "" else "?"
 		end
 		screen.Enabled = not busy
 		signGui.Enabled = not busy
-		sign.Text = if hasBot then "🤖" else `👤 {count}/2`
+		signText.Text = `{count}/2 PLAYERS`
 	end
 	show({}, false)
 
 	return {
 		id = id,
 		arena = arena,
-		squares = {
-			Left = squares.Left.tile,
-			Right = squares.Right.tile,
-		},
+		prompts = prompts,
+		seats = seats,
 		stands = stands,
 		exits = exits,
-		bot = bot,
-		botHome = botHome,
 		show = show,
 	}
 end

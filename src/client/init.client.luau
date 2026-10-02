@@ -1,9 +1,13 @@
 local AimController = require(script.AimController)
 local Camera = require(script.Camera)
+local Flyer = require(script.Flyer)
+local Profile = require(script.Profile)
 local UI = require(script.UI)
 local Visuals = require(script.Visuals)
 
+Profile.start()
 Camera.start()
 Visuals.start()
 AimController.start()
+Flyer.start()
 UI.start()

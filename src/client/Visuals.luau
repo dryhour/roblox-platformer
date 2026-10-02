@@ -7,18 +7,20 @@ local TweenService = game:GetService("TweenService")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Brainrots = require(Shared:WaitForChild("Brainrots"))
 local Config = require(Shared:WaitForChild("Config"))
+local Cosmetics = require(Shared:WaitForChild("Cosmetics"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local Camera = require(script.Parent.Camera)
 local MyMatch = require(script.Parent.MyMatch)
+local Profile = require(script.Parent.Profile)
 local Sounds = require(script.Parent.Sounds)
 
 -- What players see on top of the physics:
 --   * every ball's brainrot look, moved each frame to follow its sphere (the server only places
 --     it once), facing out of the arena toward the players, turning toward where it's going,
 --     and growing with it
---   * effects the server sends: hits, damage and heal numbers, wall sparks, explosions and
---     knockouts. Players in the match also get sounds and camera shake; anyone close enough in
---     the lobby sees the rest.
+--   * effects the server sends: hits, damage and heal numbers, wall sparks, explosions,
+--     abilities, and knockouts in the winner's explosion style. Players in the match also get
+--     sounds and camera shake; anyone close enough in the lobby sees the rest.
 --   * the arrows on the lobby floor, pulsing toward the stations
 local Visuals = {}
 
@@ -249,9 +251,13 @@ local function onEffect(kind: string, position: Vector3, data: any, amount: any)
 		sound("Hit")
 		shake(math.clamp((tonumber(amount) or 0) / 60, 0.15, 0.6))
 	elseif kind == "Damage" then
-		pop(position, `-{data}`, RED, 4.5)
+		if Profile.setting("numbers") then
+			pop(position, `-{data}`, RED, 4.5)
+		end
 	elseif kind == "Heal" then
-		pop(position, `+{data}`, GREEN, 4.5)
+		if Profile.setting("numbers") then
+			pop(position, `+{data}`, GREEN, 4.5)
+		end
 	elseif kind == "Wall" then
 		burst(position, { Color3.fromRGB(120, 220, 255) }, 6, 9)
 	elseif kind == "Explosion" then
@@ -269,11 +275,27 @@ local function onEffect(kind: string, position: Vector3, data: any, amount: any)
 		shake(0.5)
 	elseif kind == "KnockOut" then
 		local brainrot = Brainrots.get(data)
-		burst(position, { brainrot.color, Color3.new(1, 1, 1), ORANGE }, 70, 30)
-		ring(position, facing, 10, brainrot.color)
-		pop(position + Vector3.new(0, 2, 0), "💥", brainrot.color, 11)
+		local explosion = Cosmetics.explosion(amount)
+		local colors = table.clone(explosion.colors)
+		table.insert(colors, brainrot.color)
+		burst(position, colors, 80, 30)
+		ring(position, facing, 10, explosion.colors[1])
+		pop(position + Vector3.new(0, 2, 0), explosion.emoji, explosion.colors[1], 11)
 		sound("KnockOut")
 		shake(0.8)
+	elseif kind == "Frost" then
+		burst(position, { Color3.fromRGB(170, 230, 255), Color3.new(1, 1, 1) }, 25, 14)
+		pop(position + Vector3.new(0, 1.5, 0), "❄️", Color3.fromRGB(170, 230, 255), 5)
+	elseif kind == "Lightning" then
+		burst(position, { Color3.fromRGB(255, 245, 140), Color3.new(1, 1, 1) }, 30, 20)
+		sound("Boom")
+		shake(0.3)
+	elseif kind == "Dice" then
+		pop(position + Vector3.new(0, 1.5, 0), `🎲{data}`, Color3.fromRGB(255, 220, 90), 5)
+	elseif kind == "Sticker" then
+		if (workspace.CurrentCamera.CFrame.Position - position).Magnitude < 60 then
+			Sounds.play("Pop")
+		end
 	elseif kind == "Launch" then
 		sound("Launch")
 	end

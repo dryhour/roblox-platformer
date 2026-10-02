@@ -6,9 +6,9 @@ local Builder = require(script.Parent.Builder)
 local Station = require(script.Parent.Station)
 
 -- The lobby: a big floating platform over the ocean where players walk around as their normal
--- avatars. No menus (see CLAUDE.md): glowing arrows lead from the spawn down the middle, duel
--- stations line both sides, and statues of every brainrot ball stand at the far end. The two
--- stations nearest the spawn have robots to play against.
+-- avatars. Glowing arrows lead from the spawn down the middle, duel stations line both sides,
+-- a gumball machine by the spawn opens the Store, and statues of every brainrot ball stand at
+-- the far end.
 local Lobby = {}
 
 export type Lobby = {
@@ -57,6 +57,35 @@ local function chevron(b: Builder.Builder, folder: Folder, tip: Vector3, order: 
 	end
 end
 
+-- A big gumball machine. Its prompt opens the Store window (clients watch for prompts with an
+-- OpensWindow attribute).
+local function gumballMachine(b: Builder.Builder, position: Vector3)
+	local base = b:block(Vector3.new(6, 6, 6), position + Vector3.new(0, 3, 0), Color3.fromRGB(220, 50, 70), "StoreMachine")
+	b:block(Vector3.new(2.4, 1.6, 0.4), position + Vector3.new(0, 2.6, 3.1), Color3.fromRGB(40, 40, 50), "Chute")
+	local globe = b:block(Vector3.new(7, 7, 7), position + Vector3.new(0, 9.5, 0), Color3.fromRGB(200, 230, 255), "Globe")
+	globe.Shape = Enum.PartType.Ball
+	globe.Material = Enum.Material.Glass
+	globe.Transparency = 0.6
+	local colors = { Color3.fromRGB(255, 90, 120), Color3.fromRGB(255, 220, 60), Color3.fromRGB(80, 200, 255), Color3.fromRGB(120, 230, 110) }
+	for index = 1, 14 do
+		local angle = index * 2.4
+		local offset = Vector3.new(math.cos(angle) * 2, (index % 4) * 0.9 - 1.6, math.sin(angle) * 2)
+		local gumball = b:block(Vector3.one * 1.3, position + Vector3.new(0, 9.5, 0) + offset, colors[index % #colors + 1], "Gumball")
+		gumball.Shape = Enum.PartType.Ball
+		gumball.CanCollide = false
+	end
+	b:cylinder(1.2, 4, position + Vector3.new(0, 13.4, 0), Color3.fromRGB(220, 50, 70), "Cap")
+
+	local prompt = Instance.new("ProximityPrompt")
+	prompt.ActionText = "Store"
+	prompt.ObjectText = ""
+	prompt.HoldDuration = 0
+	prompt.MaxActivationDistance = 12
+	prompt.RequiresLineOfSight = false
+	prompt:SetAttribute("OpensWindow", "Store")
+	prompt.Parent = base
+end
+
 function Lobby.build(): Lobby
 	decorateWorld()
 
@@ -102,21 +131,23 @@ function Lobby.build(): Lobby
 	end
 
 	local stations = {}
-	for row, z in STATION_ZS do
+	for _, z in STATION_ZS do
 		for _, sign in { -1, 1 } do
 			-- Each station faces the walkway.
 			local origin = Vector3.new(sign * STATION_X, 0, z)
 			local into = Vector3.new(sign, 0, 0)
 			local id = `Arena{#stations + 1}`
-			table.insert(stations, Station.build(b, id, CFrame.lookAt(origin, origin + into), row == 1))
+			table.insert(stations, Station.build(b, id, CFrame.lookAt(origin, origin + into)))
 		end
 	end
+
+	gumballMachine(b, Vector3.new(-24, 0, FRONT_Z - 22))
 
 	-- A statue of every brainrot ball at the far end, facing the spawn.
 	local count = #Brainrots.list
 	local statueZ = BACK_Z + 14
 	for index, brainrot in Brainrots.list do
-		local x = (index - (count + 1) / 2) * 12
+		local x = (index - (count + 1) / 2) * 9 -- close together, so all 12 fit between the stations
 		local pedestalTop = 3
 		b:block(Vector3.new(7, pedestalTop, 7), Vector3.new(x, pedestalTop / 2, statueZ), PEDESTAL, "Pedestal")
 		local statue = Looks.build(brainrot.id, 1)

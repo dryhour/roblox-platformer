@@ -1,3 +1,7 @@
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local AimMath = require(ReplicatedStorage.Shared.AimMath)
+
 -- Brr Brr Patapim (the doc's Spider Ball): each wall bounce stretches a vine back to its last
 -- bounce point (up to 3, each lasting 6 seconds). The other ball rolling through a vine is
 -- slowed by 60% and takes 40 damage a second.
@@ -11,11 +15,7 @@ local SLOW_TIME = 1.2
 local DAMAGE_EVERY = 0.5 -- vine damage is added up and dealt in chunks
 
 -- Balls and vines all sit in the arena's plane, so plain 3D distance works.
-local function distanceToSegment(point: Vector3, a: Vector3, b: Vector3): number
-	local segment = b - a
-	local t = math.clamp((point - a):Dot(segment) / math.max(segment:Dot(segment), 0.001), 0, 1)
-	return (a + segment * t - point).Magnitude
-end
+local distanceToSegment = AimMath.distanceToSegment
 
 function Vines.onStart(_battle, ball)
 	ball.state.vines = {}

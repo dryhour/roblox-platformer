@@ -22,5 +22,18 @@ if starterCharacter then
 	end
 end
 
-require(ReplicatedStorage.Shared.Remotes) -- creates the RemoteEvents
-require(script.MatchService).start()
+require(ReplicatedStorage.Shared.Remotes) -- creates the remotes
+
+local Actions = require(script.Actions)
+local Avatars = require(script.Avatars)
+local Data = require(script.Data)
+local MatchService = require(script.MatchService)
+local Shop = require(script.Shop)
+local Trading = require(script.Trading)
+
+Data.start()
+Shop.start()
+Avatars.start()
+Trading.start(MatchService.busy)
+MatchService.start(Trading.cancel)
+Actions.start()

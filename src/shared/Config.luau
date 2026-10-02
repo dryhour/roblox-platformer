@@ -5,10 +5,11 @@ local Config = {}
 Config.HEARTS = 3 -- lose a round, lose a heart; lose them all, lose the match
 
 -- Lobby
-Config.SETTLE_TIME = 1 -- both squares at a station must stay filled this long to start a match
+Config.SETTLE_TIME = 1 -- seconds between both squares at a station filling and the match starting
+Config.BOT_JOIN_AFTER = 15 -- seconds alone at a station before a bot takes the other side
 
 -- Round phases
-Config.DRAFT_TIME = 10
+Config.DRAFT_TIME = 25
 Config.AIM_TIME = 6
 Config.BATTLE_TIME = 45 -- if both balls survive, the one with more health left wins the round
 Config.RESOLVE_TIME = 4
@@ -59,6 +60,9 @@ Config.Sounds = {
 	Beep = "rbxasset://sounds/electronicpingshort.wav",
 	Pick = "rbxasset://sounds/electronicpingshort.wav",
 	Boom = "rbxasset://sounds/impact_water.mp3",
+	Tick = "rbxasset://sounds/clickfast.wav",
+	Reward = "rbxasset://sounds/victory.wav",
+	Pop = "rbxasset://sounds/button.wav",
 }
 
 return Config

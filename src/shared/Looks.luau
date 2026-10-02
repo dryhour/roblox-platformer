@@ -1,10 +1,10 @@
 local Brainrots = require(script.Parent.Brainrots)
 local Config = require(script.Parent.Config)
 
--- Builds a brainrot's look from its part list (see Brainrots). Look parts are anchored and not
--- solid; each stores where it sits relative to the look's center in an Offset attribute.
--- In a battle, clients move them every frame to follow the ball; statues and draft cards place
--- them once with Looks.place. Used by both the server and clients.
+-- Builds models from part lists (see Brainrots.PartSpec): brainrot looks, and cosmetics like
+-- flyers. Parts are anchored and not solid; each stores where it sits relative to the model's
+-- center in an Offset attribute. In a battle, clients move a ball's look every frame to follow
+-- it; statues, cards and flyers are placed with Looks.place. Used by both the server and clients.
 local Looks = {}
 
 local function makePart(spec: Brainrots.PartSpec, scale: number): BasePart
@@ -37,18 +37,24 @@ local function makePart(spec: Brainrots.PartSpec, scale: number): BasePart
 	return part
 end
 
--- A Model named "Look" with the brainrot's parts. The first one is named "Body". `scale` is
--- relative to Brainrots.DESIGN_SIZE; leave it out to fit a ball Config.BALL_SIZE across.
-function Looks.build(id: string, scale: number?): Model
-	local brainrot = Brainrots.get(id)
+-- A Model with a part for each spec, at `scale`. The first part is named "Body".
+function Looks.fromParts(specs: { Brainrots.PartSpec }, scale: number): Model
 	local model = Instance.new("Model")
-	model.Name = "Look"
-	model:SetAttribute("Brainrot", brainrot.id)
-	for index, spec in brainrot.look do
-		local part = makePart(spec, scale or Config.BALL_SIZE / Brainrots.DESIGN_SIZE)
+	for index, spec in specs do
+		local part = makePart(spec, scale)
 		part.Name = if index == 1 then "Body" else "Part"
 		part.Parent = model
 	end
+	return model
+end
+
+-- A Model named "Look" with the brainrot's parts. `scale` is relative to Brainrots.DESIGN_SIZE;
+-- leave it out to fit a ball Config.BALL_SIZE across.
+function Looks.build(id: string, scale: number?): Model
+	local brainrot = Brainrots.get(id)
+	local model = Looks.fromParts(brainrot.look, scale or Config.BALL_SIZE / Brainrots.DESIGN_SIZE)
+	model.Name = "Look"
+	model:SetAttribute("Brainrot", brainrot.id)
 	return model
 end
 

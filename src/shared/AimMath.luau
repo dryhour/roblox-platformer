@@ -32,6 +32,13 @@ function AimMath.clamp(direction: unknown, forward: Vector3, axis: Vector3): Vec
 	return AimMath.rotate(forward, angle, axis)
 end
 
+-- How far `point` is from the segment between `a` and `b`.
+function AimMath.distanceToSegment(point: Vector3, a: Vector3, b: Vector3): number
+	local segment = b - a
+	local t = math.clamp((point - a):Dot(segment) / math.max(segment:Dot(segment), 0.001), 0, 1)
+	return (a + segment * t - point).Magnitude
+end
+
 -- The points a ball launched from `origin` along `direction` passes through as it bounces off
 -- `walls`, up to `bounces` bounces or `length` studs in total.
 function AimMath.trace(

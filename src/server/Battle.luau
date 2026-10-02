@@ -57,6 +57,7 @@ export type Ball = {
 export type Battle = typeof(setmetatable(
 	{} :: {
 		arena: Arena.Arena,
+		explosions: { [string]: string }, -- each side's knockout explosion (see Cosmetics)
 		balls: { [string]: Ball },
 		byCore: { [BasePart]: Ball },
 		owned: { [Ball]: { Instance } },
@@ -108,11 +109,13 @@ local function healthLabel(core: BasePart, color: Color3): TextLabel
 	return text
 end
 
--- Sets up a battle in `arena` with the picked brainrot for each side ("Left", "Right"). The balls
--- sit frozen at their spawn points until launch().
-function Battle.new(arena: Arena.Arena, picks: { [string]: string }): Battle
+-- Sets up a battle in `arena` with the picked brainrot for each side ("Left", "Right"), and the
+-- explosion each side shows when it knocks the other out. The balls sit frozen at their spawn
+-- points until launch().
+function Battle.new(arena: Arena.Arena, picks: { [string]: string }, explosions: { [string]: string }): Battle
 	local self = setmetatable({
 		arena = arena,
+		explosions = explosions,
 		balls = {},
 		byCore = {},
 		owned = {},
@@ -295,7 +298,8 @@ end
 function Battle.knockOut(self: Battle, ball: Ball)
 	ball.alive = false
 	ball.hp = 0
-	self:effect("KnockOut", ball.core.Position, ball.def.id)
+	local winner = if ball.side == "Left" then "Right" else "Left"
+	self:effect("KnockOut", ball.core.Position, ball.def.id, self.explosions[winner])
 	self:clearOwned(ball)
 	self.byCore[ball.core] = nil
 	ball.model:Destroy()

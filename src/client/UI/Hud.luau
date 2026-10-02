@@ -4,36 +4,38 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local SocialService = game:GetService("SocialService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local Brainrots = require(Shared:WaitForChild("Brainrots"))
 local Config = require(Shared:WaitForChild("Config"))
 local Text = require(Shared:WaitForChild("Text"))
+local Action = require(script.Parent.Parent.Action)
 local AimController = require(script.Parent.Parent.AimController)
 local MyMatch = require(script.Parent.Parent.MyMatch)
 local Sounds = require(script.Parent.Parent.Sounds)
 local BallIcon = require(script.Parent.BallIcon)
 local Widgets = require(script.Parent.Widgets)
 
--- The match HUD, laid out like a fighting game: each side's card in its top corner (face, name,
--- hearts, and the ball it's playing), the phase and its timer at the top, a pointing hand while
--- you aim, the round result and match winner, and a red tint in sudden death. While you wait in
--- a station square, your card shows on your side, a "?" on the other, and an ✉️ button invites
--- friends. Icons and numbers, as few words as possible (see CLAUDE.md). Nothing shows otherwise.
+-- The HUD while you wait at a station or play a match, laid out like the reference game: each
+-- side's card in its top corner (face, name, hearts, and the ball it's playing). While waiting,
+-- the empty side reads "Waiting For Opponent", with Invite and Leave buttons at the bottom.
+-- In a match: the phase timer at the top, a pointing hand while you aim, the round result and
+-- match winner, and a red tint in sudden death.
 local Hud = {}
 
 local PHASE_ICONS = { Aim = "🎯", Battle = "⚔️" } -- the draft shows its own countdown
 local SUDDEN_DEATH_TINT = Color3.fromRGB(255, 170, 170)
 local HEADSHOT = "rbxthumb://type=AvatarHeadShot&id=%d&w=150&h=150"
-local FACE_SIZE = 84
+local FACE_SIZE = 96
 local FACE_BACK = Color3.fromRGB(25, 30, 58)
-local INVITE = Color3.fromRGB(70, 120, 255)
+local PLACEHOLDER = Color3.fromRGB(250, 215, 40)
 
 local CENTER = Enum.TextXAlignment.Center
 
 type Card = {
 	face: ImageLabel,
 	faceText: TextLabel,
-	ring: UIStroke,
 	name: TextLabel,
 	hearts: TextLabel,
+	ballName: TextLabel,
 	ball: BallIcon.BallIcon,
 }
 
@@ -42,8 +44,7 @@ type CardInfo = {
 	name: string?,
 	hearts: number?,
 	pick: string?,
-	you: boolean?,
-	mystery: boolean?, -- nobody yet: shows a "?"
+	waiting: boolean?, -- nobody yet
 }
 
 local function bigLabel(size: number, props: { [string]: any }): TextLabel
@@ -58,11 +59,6 @@ local function bigLabel(size: number, props: { [string]: any }): TextLabel
 	return label
 end
 
-local function hearts(count: number): string
-	count = math.clamp(count, 0, Config.HEARTS)
-	return string.rep("❤️", count) .. string.rep("🖤", Config.HEARTS - count)
-end
-
 -- A side's card, pinned to its top corner and mirrored on the right.
 local function makeCard(parent: GuiObject, side: string): Card
 	local isLeft = side == "Left"
@@ -71,7 +67,7 @@ local function makeCard(parent: GuiObject, side: string): Card
 		Name = `{side}Card`,
 		AnchorPoint = Vector2.new(if isLeft then 0 else 1, 0),
 		Position = UDim2.new(if isLeft then 0 else 1, if isLeft then 16 else -16, 0, 12),
-		Size = UDim2.fromOffset(300, 180),
+		Size = UDim2.fromOffset(420, 250),
 		BackgroundTransparency = 1,
 		Parent = parent,
 	})
@@ -91,47 +87,52 @@ local function makeCard(parent: GuiObject, side: string): Card
 	face.BackgroundColor3 = FACE_BACK
 	face.Parent = root
 	Widgets.create("UICorner", { CornerRadius = UDim.new(1, 0), Parent = face })
-	local ring = Widgets.create("UIStroke", { Color = color, Thickness = 4, Parent = face })
-	local faceText = bigLabel(48, {
+	Widgets.create("UIStroke", { Color = color, Thickness = 4, Parent = face })
+	local faceText = bigLabel(60, {
 		Size = UDim2.fromScale(1, 1),
 		AutomaticSize = Enum.AutomaticSize.None,
 		TextStrokeTransparency = 1,
-		TextColor3 = Widgets.MUTED,
+		TextColor3 = Color3.fromRGB(40, 40, 40),
 		Parent = face,
 	})
 
-	local name = Widgets.label("", 22, slot(FACE_SIZE + 12, 6, 200, 30))
-	name.FontFace = Widgets.TITLE_FONT
-	name.AutomaticSize = Enum.AutomaticSize.None
-	name.TextXAlignment = align
-	name.TextColor3 = color
-	name.TextStrokeTransparency = 0
-	name.TextWrapped = false
-	name.TextTruncate = Enum.TextTruncate.AtEnd
-	name.Parent = root
+	local nameProps = slot(FACE_SIZE + 10, 10, 300, 34)
+	nameProps.Parent = root
+	nameProps.TextXAlignment = align
+	nameProps.TextColor3 = color
+	nameProps.TextScaled = true
+	nameProps.AutomaticSize = Enum.AutomaticSize.None
+	local name = Widgets.title("", 26, nameProps)
 
-	local heartsLabel = Widgets.label("", 30, slot(FACE_SIZE + 10, 38, 200, 38))
+	local heartsLabel = Widgets.label("", 34, slot(FACE_SIZE + 8, 44, 200, 44))
 	heartsLabel.AutomaticSize = Enum.AutomaticSize.None
 	heartsLabel.TextXAlignment = align
 	heartsLabel.Parent = root
 
-	local ballProps = slot(4, FACE_SIZE + 10, 76, 76)
+	local ballName = Widgets.body("", 26, slot(0, FACE_SIZE + 6, 260, 32))
+	ballName.AutomaticSize = Enum.AutomaticSize.None
+	ballName.TextXAlignment = align
+	ballName.TextStrokeTransparency = 0
+	ballName.Parent = root
+
+	local ballProps = slot(10, FACE_SIZE + 42, 84, 84)
 	ballProps.Parent = root
 	local ball = BallIcon.new(ballProps)
 
-	return { face = face, faceText = faceText, ring = ring, name = name, hearts = heartsLabel, ball = ball }
+	return { face = face, faceText = faceText, name = name, hearts = heartsLabel, ballName = ballName, ball = ball }
 end
 
 local function setCard(card: Card, info: CardInfo)
 	local userId = info.userId or 0
-	card.face.Image = if info.mystery or userId <= 0 then "" else string.format(HEADSHOT, userId)
-	card.faceText.Text = if info.mystery then "?" elseif userId <= 0 then "🤖" else ""
-	card.ring.Thickness = if info.you then 6 else 3
-	-- The bot's robot face says enough.
-	card.name.Text = if userId <= 0 then "" else info.name or ""
+	card.face.Image = if info.waiting or userId <= 0 then "" else string.format(HEADSHOT, userId)
+	card.face.BackgroundColor3 = if info.waiting then PLACEHOLDER else FACE_BACK
+	card.faceText.Text = if info.waiting then "🙂" elseif userId <= 0 then "🤖" else ""
+	card.name.Text = if info.waiting then "Waiting For Opponent" else info.name or ""
 	card.hearts.Visible = info.hearts ~= nil
-	card.hearts.Text = hearts(info.hearts or 0)
-	card.ball.set(info.pick)
+	card.hearts.Text = string.rep("❤️", math.clamp(info.hearts or 0, 0, Config.HEARTS))
+	local pick = info.pick or ""
+	card.ballName.Text = if pick ~= "" then Brainrots.get(pick).name else ""
+	card.ball.set(pick)
 end
 
 function Hud.new(gui: ScreenGui)
@@ -172,7 +173,16 @@ function Hud.new(gui: ScreenGui)
 	})
 	Widgets.fit(hint)
 
-	local invite = Widgets.button("✉️", function()
+	-- Invite and Leave, while waiting.
+	local waitButtons = Widgets.create("Frame", {
+		AnchorPoint = Vector2.new(0.5, 1),
+		Position = UDim2.new(0.5, 0, 1, -24),
+		Size = UDim2.fromOffset(500, 210),
+		BackgroundTransparency = 1,
+		Parent = root,
+	})
+	Widgets.fit(waitButtons)
+	Widgets.bigButton("Invite", Widgets.BLUE, function()
 		task.spawn(function()
 			local ok, canInvite = pcall(SocialService.CanSendGameInviteAsync, SocialService, player)
 			if ok and canInvite then
@@ -180,14 +190,21 @@ function Hud.new(gui: ScreenGui)
 			end
 		end)
 	end, {
-		AnchorPoint = Vector2.new(0.5, 1),
-		Position = UDim2.new(0.5, 0, 1, -28),
-		Size = UDim2.fromOffset(80, 80),
-		BackgroundColor3 = INVITE,
-		TextSize = 44,
-		Parent = root,
+		AnchorPoint = Vector2.new(0.5, 0),
+		Position = UDim2.fromScale(0.5, 0),
+		Size = UDim2.fromOffset(330, 86),
+		TextSize = 54,
+		Parent = waitButtons,
 	})
-	Widgets.fit(invite)
+	Widgets.bigButton("Leave", Widgets.RED, function()
+		Action.send("Leave")
+	end, {
+		AnchorPoint = Vector2.new(0.5, 1),
+		Position = UDim2.fromScale(0.5, 1),
+		Size = UDim2.fromOffset(500, 104),
+		TextSize = 64,
+		Parent = waitButtons,
+	})
 
 	local tint = Instance.new("ColorCorrectionEffect")
 	tint.Name = "SuddenDeathTint"
@@ -196,45 +213,41 @@ function Hud.new(gui: ScreenGui)
 	tint.Parent = Lighting
 
 	local lastBeep = 0
-	local mysterySide = ""
 
 	local function refresh()
 		local state = MyMatch.state()
 		local waitingSide = if state then "" else MyMatch.waitingSide()
 		root.Visible = state ~= nil or waitingSide ~= ""
 		tint.Enabled = state ~= nil and state:GetAttribute("SuddenDeath") == true
-		invite.Visible = waitingSide ~= ""
-		mysterySide = ""
+		waitButtons.Visible = waitingSide ~= ""
 
 		if state then
-			local mySide = MyMatch.side()
 			for side, card in cards do
 				setCard(card, {
 					userId = tonumber(state:GetAttribute(`{side}UserId`)),
 					name = tostring(state:GetAttribute(`{side}Name`) or ""),
 					hearts = tonumber(state:GetAttribute(`{side}Hearts`)) or 0,
 					pick = tostring(state:GetAttribute(`{side}Pick`) or ""),
-					you = side == mySide,
 				})
 			end
 
+			local mySide = MyMatch.side()
 			local phase = MyMatch.phase()
 			if phase == "Resolve" then
 				local winner = state:GetAttribute("RoundWinner")
 				bannerIcon.Text = if winner == mySide then "🏆" elseif winner == "Draw" then "🤝" else "💔"
-				bannerText.Text = ""
+				bannerText.Text = if winner == mySide then "ROUND WON" elseif winner == "Draw" then "DRAW" else "ROUND LOST"
 			elseif phase == "Over" then
 				bannerIcon.Text = "👑"
-				bannerText.Text = tostring(state:GetAttribute("MatchWinner") or "")
+				bannerText.Text = `{state:GetAttribute("MatchWinner") or ""} WINS`
 			end
 			banner.Visible = phase == "Resolve" or phase == "Over"
 		elseif waitingSide ~= "" then
 			for side, card in cards do
 				if side == waitingSide then
-					setCard(card, { userId = player.UserId, name = player.DisplayName, you = true })
+					setCard(card, { userId = player.UserId, name = player.DisplayName })
 				else
-					setCard(card, { mystery = true })
-					mysterySide = side
+					setCard(card, { waiting = true })
 				end
 			end
 			banner.Visible = false
@@ -245,10 +258,8 @@ function Hud.new(gui: ScreenGui)
 		if not root.Visible then
 			return
 		end
-		for side, card in cards do
+		for _, card in cards do
 			card.ball.spin()
-			-- The empty side breathes while you wait for someone to join.
-			card.face.BackgroundTransparency = if side == mysterySide then 0.3 + math.abs(math.sin(os.clock() * 2)) * 0.5 else 0
 		end
 
 		local phase = MyMatch.phase()

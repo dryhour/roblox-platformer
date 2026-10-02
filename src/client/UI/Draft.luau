@@ -1,4 +1,5 @@
 local GuiService = game:GetService("GuiService")
+local MarketplaceService = game:GetService("MarketplaceService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
@@ -6,29 +7,31 @@ local UserInputService = game:GetService("UserInputService")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Brainrots = require(Shared:WaitForChild("Brainrots"))
 local Config = require(Shared:WaitForChild("Config"))
+local Economy = require(Shared:WaitForChild("Economy"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
+local Action = require(script.Parent.Parent.Action)
 local MyMatch = require(script.Parent.Parent.MyMatch)
+local Profile = require(script.Parent.Parent.Profile)
 local BallIcon = require(script.Parent.BallIcon)
 local Widgets = require(script.Parent.Widgets)
 
--- The draft: the screen dims, a big countdown shows at the top, and three cards appear, each
--- with a ball's name, the ball spinning, its rarity (colored border and stars), its health and
--- speed, and its ability's icon. Tap one to pick it.
+-- The draft, like the reference game: the screen dims, "CHOOSE YOUR BALL" with a countdown,
+-- and three cards from your collection, each with the ball's name, picture and what it does.
+-- Tap one to pick it. All Balls swaps the three for picks from every ball: free once a day, or
+-- every round with the game pass.
 local Draft = {}
 
-local CARD_WIDTH = 190
-local CARD_HEIGHT = 280
-local GAP = 24
-local CARD = Color3.fromRGB(14, 18, 38)
-local PREVIEW = Color3.fromRGB(46, 54, 84)
+local CARD_WIDTH = 230
+local CARD_HEIGHT = 380
+local GAP = 50
+local CARD = Color3.fromRGB(14, 18, 34)
+local PREVIEW = Color3.fromRGB(70, 74, 86)
 local DIM = Color3.fromRGB(6, 8, 20)
 
 type Card = { button: TextButton, stroke: UIStroke, scale: UIScale, icon: BallIcon.BallIcon, id: string }
 
 local function makeCard(parent: GuiObject, order: number, id: string): Card
 	local brainrot = Brainrots.get(id)
-	local rarity = Config.RARITIES[brainrot.rarity]
-
 	local button = Widgets.create("TextButton", {
 		LayoutOrder = order,
 		Size = UDim2.fromOffset(CARD_WIDTH, CARD_HEIGHT),
@@ -36,40 +39,51 @@ local function makeCard(parent: GuiObject, order: number, id: string): Card
 		AutoButtonColor = false,
 		Text = "",
 		Parent = parent,
-	}, { Widgets.corner(10) })
+	})
 	local stroke = Widgets.create("UIStroke", {
 		ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
-		Color = rarity.color,
-		Thickness = 3,
+		Color = Color3.new(1, 1, 1),
+		Thickness = 2,
 		Parent = button,
 	})
 	local scale = Widgets.create("UIScale", { Parent = button })
 
-	local content = Widgets.stack({ Size = UDim2.fromScale(1, 1), AutomaticSize = Enum.AutomaticSize.None, Parent = button }, 6)
-	local layout = content:FindFirstChildOfClass("UIListLayout") :: UIListLayout
-	layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-	Widgets.create("UIPadding", { PaddingTop = UDim.new(0, 12), PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 8), Parent = content })
-
-	local function line(lineOrder: number, text: string, size: number, color: Color3?)
-		Widgets.label(text, size, {
-			LayoutOrder = lineOrder,
-			TextXAlignment = Enum.TextXAlignment.Center,
-			TextColor3 = color or Widgets.TEXT,
-			Parent = content,
-		})
-	end
-	line(1, brainrot.name, 16)
+	Widgets.body(brainrot.name, 28, {
+		Position = UDim2.fromOffset(8, 40),
+		Size = UDim2.new(1, -16, 0, 60),
+		AutomaticSize = Enum.AutomaticSize.None,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		TextWrapped = true,
+		Parent = button,
+	})
 	local preview = Widgets.create("Frame", {
-		LayoutOrder = 2,
-		Size = UDim2.fromOffset(120, 120),
+		AnchorPoint = Vector2.new(0.5, 0),
+		Position = UDim2.new(0.5, 0, 0, 110),
+		Size = UDim2.fromOffset(140, 140),
 		BackgroundColor3 = PREVIEW,
-		Parent = content,
-	}, { Widgets.corner(6) })
+		Parent = button,
+	}, {
+		Widgets.create("UIStroke", { Thickness = 1, Color = Color3.fromRGB(110, 115, 130) }),
+	})
 	local icon = BallIcon.new({ Size = UDim2.fromScale(1, 1), Parent = preview })
 	icon.set(id)
-	line(3, string.rep("★", rarity.stars), 18, rarity.color)
-	line(4, `❤️ {brainrot.stats.health}   ⚡ {brainrot.stats.speed}`, 15, Widgets.MUTED)
-	line(5, `{brainrot.skillIcon} {brainrot.skillHint}`, 18, Widgets.ACCENT)
+	Widgets.body(brainrot.description, 26, {
+		Position = UDim2.fromOffset(12, 270),
+		Size = UDim2.new(1, -24, 0, 84),
+		AutomaticSize = Enum.AutomaticSize.None,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		TextWrapped = true,
+		Parent = button,
+	})
+	-- A thin bar along the bottom in the ball's rarity color.
+	Widgets.create("Frame", {
+		AnchorPoint = Vector2.new(0, 1),
+		Position = UDim2.fromScale(0, 1),
+		Size = UDim2.new(1, 0, 0, 6),
+		BackgroundColor3 = Config.RARITIES[brainrot.rarity].color,
+		BorderSizePixel = 0,
+		Parent = button,
+	})
 
 	button.Activated:Connect(function()
 		Remotes.Draft:FireServer(id)
@@ -90,40 +104,49 @@ function Draft.new(gui: ScreenGui)
 		BorderSizePixel = 0,
 		Parent = gui,
 	})
-	local content = Widgets.stack({
+	local content = Widgets.create("Frame", {
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		Position = UDim2.new(0.5, 0, 0.5, 50),
-		Size = UDim2.fromOffset(CARD_WIDTH * 3 + GAP * 2, 0),
+		Size = UDim2.fromOffset(CARD_WIDTH * 3 + GAP * 2, 640),
+		BackgroundTransparency = 1,
 		Parent = root,
-	}, 16)
+	})
 	Widgets.fit(content)
 
-	local countdown = Widgets.label("", 56, {
-		LayoutOrder = 1,
-		TextXAlignment = Enum.TextXAlignment.Center,
-		TextStrokeTransparency = 0,
+	local title = Widgets.title("", 44, {
+		Size = UDim2.new(1, 0, 0, 60),
+		AutomaticSize = Enum.AutomaticSize.None,
 		Parent = content,
 	})
-	countdown.FontFace = Widgets.TITLE_FONT
 	local row = Widgets.stack({
-		LayoutOrder = 2,
+		Position = UDim2.fromOffset(0, 90),
 		AutomaticSize = Enum.AutomaticSize.None,
 		Size = UDim2.new(1, 0, 0, CARD_HEIGHT),
 		Parent = content,
 	}, GAP, Enum.FillDirection.Horizontal)
-	local track = Widgets.create("Frame", {
-		LayoutOrder = 3,
-		Size = UDim2.new(1, 0, 0, 10),
-		BackgroundColor3 = Widgets.BUTTON,
-		BorderSizePixel = 0,
+
+	local allBalls = Widgets.bigButton("All Balls", Widgets.PURPLE, function()
+		task.spawn(function()
+			local ok = Action.call("AllBalls")
+			if not ok and Economy.ALL_BALLS_PASS ~= 0 then
+				MarketplaceService:PromptGamePassPurchase(player, Economy.ALL_BALLS_PASS)
+			end
+		end)
+	end, {
+		AnchorPoint = Vector2.new(0.5, 1),
+		Position = UDim2.fromScale(0.5, 1),
+		Size = UDim2.fromOffset(320, 84),
+		TextSize = 44,
 		Parent = content,
-	}, { Widgets.corner(5) })
-	local bar = Widgets.create("Frame", {
-		Size = UDim2.fromScale(1, 1),
-		BackgroundColor3 = Widgets.ACCENT,
-		BorderSizePixel = 0,
-		Parent = track,
-	}, { Widgets.corner(5) })
+	})
+	local free = Widgets.title("Free", 30, {
+		Position = UDim2.fromOffset(30, -26),
+		Size = UDim2.fromOffset(100, 36),
+		AutomaticSize = Enum.AutomaticSize.None,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		TextColor3 = Color3.fromRGB(130, 170, 255),
+		Parent = allBalls,
+	})
 
 	local cards: { Card } = {}
 	local shownOptions = ""
@@ -155,21 +178,28 @@ function Draft.new(gui: ScreenGui)
 		local picked = typeof(pick) == "string" and pick ~= ""
 		for _, card in cards do
 			local chosen = card.id == pick
-			card.scale.Scale = if chosen then 1.08 else 1
-			card.stroke.Thickness = if chosen then 7 else 3
+			card.scale.Scale = if chosen then 1.06 else 1
+			card.stroke.Thickness = if chosen then 6 else 2
+			card.stroke.Color = if chosen then Widgets.GOLD else Color3.new(1, 1, 1)
 			card.button.BackgroundTransparency = if picked and not chosen then 0.6 else 0
 			card.icon.frame.ImageTransparency = if picked and not chosen then 0.6 else 0
 		end
+
+		-- All Balls: once per round, free once a day (the pass makes it always available).
+		local profile = Profile.get()
+		local freeToday = profile ~= nil and profile.freeAllBallsDay ~= Economy.day(workspace:GetServerTimeNow())
+		local used = player:GetAttribute("AllBallsUsed") == true
+		allBalls.Visible = not picked and not used and (freeToday or Economy.ALL_BALLS_PASS ~= 0)
+		free.Visible = freeToday
 	end
 
 	local function tick()
 		if not root.Visible then
 			return
 		end
-		local left = MyMatch.timeLeft()
-		countdown.Text = tostring(math.max(0, math.ceil(left)))
-		countdown.TextColor3 = if left <= 3 then Widgets.BAD else Widgets.TEXT
-		bar.Size = UDim2.fromScale(math.clamp(left / Config.DRAFT_TIME, 0, 1), 1)
+		local left = math.max(0, math.ceil(MyMatch.timeLeft()))
+		title.Text = `CHOOSE YOUR BALL - {left}`
+		title.TextColor3 = if left <= 3 then Widgets.BAD else Widgets.TEXT
 		for _, card in cards do
 			card.icon.spin()
 		end

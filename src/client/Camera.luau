@@ -4,6 +4,7 @@ local RunService = game:GetService("RunService")
 
 local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
 local MyMatch = require(script.Parent.MyMatch)
+local Profile = require(script.Parent.Profile)
 
 -- In the lobby, the normal Roblox camera follows your avatar. In a match, the camera glides to
 -- face your arena head on, framing the box and both players floating beside it, and your
@@ -20,9 +21,11 @@ local SHARPNESS = 5
 
 local trauma = 0 -- 0 to 1; shake strength is its square
 
--- Adds shake, e.g. 0.2 for a bump or 0.6 for a knockout.
+-- Adds shake, e.g. 0.2 for a bump or 0.6 for a knockout, unless it's turned off in Settings.
 function Camera.shake(amount: number)
-	trauma = math.min(1, trauma + amount)
+	if Profile.setting("shake") then
+		trauma = math.min(1, trauma + amount)
+	end
 end
 
 -- Where the camera goes to see the whole arena on this screen.

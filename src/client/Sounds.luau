@@ -2,8 +2,10 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local SoundService = game:GetService("SoundService")
 
 local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
+local Profile = require(script.Parent.Profile)
 
--- Plays the sounds listed in Config.Sounds, for this player only.
+-- Plays the sounds listed in Config.Sounds, for this player only, unless they've turned sound
+-- effects off in Settings.
 local Sounds = {}
 
 local VOLUME = 0.6
@@ -12,7 +14,7 @@ local loaded: { [string]: Sound } = {}
 
 function Sounds.play(name: string)
 	local id = Config.Sounds[name]
-	if not id then
+	if not id or not Profile.setting("sfx") then
 		return
 	end
 	local sound = loaded[name]
