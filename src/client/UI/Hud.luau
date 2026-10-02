@@ -3,83 +3,123 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
-local ModeInfo = require(Shared:WaitForChild("ModeInfo"))
+local Config = require(Shared:WaitForChild("Config"))
 local Text = require(Shared:WaitForChild("Text"))
+local BallController = require(script.Parent.Parent.BallController)
+local Input = require(script.Parent.Parent.Input)
+local Sounds = require(script.Parent.Parent.Sounds)
 local Widgets = require(script.Parent.Widgets)
 
--- During a game: the top bar (which game, the timer, your role and status), the rules card
--- shown before play starts, and the announcement feed.
+-- Everything on screen: the timer and how many are left, your boost meter and slam charge,
+-- 3-2-1-GO, short announcements and the winner. Icons and numbers, as few words as possible
+-- (see CLAUDE.md).
 local Hud = {}
 
--- Seconds an announcement stays before fading.
 local ANNOUNCEMENT_TIME = 3
-
-local ROLES = {
-	Attacker = { label = "ATTACKER", intro = "You are the ATTACKER", color = Widgets.BAD },
-	Survivor = { label = "SURVIVOR", intro = "You are a SURVIVOR", color = Widgets.GOOD },
-	Eliminated = { label = "ELIMINATED", intro = "", color = Widgets.MUTED },
-}
+local GO_TIME = 1
 
 local CENTER = Enum.TextXAlignment.Center
+
+-- Big outlined text that reads well over the game.
+local function bigLabel(size: number, props: { [string]: any }): TextLabel
+	local label = Widgets.label("", size, {
+		Font = Enum.Font.GothamBlack,
+		TextXAlignment = CENTER,
+		TextStrokeTransparency = 0,
+	})
+	for key, value in props do
+		(label :: any)[key] = value
+	end
+	return label
+end
+
+local function pill(props: { [string]: any }): Frame
+	local frame = Widgets.create("Frame", {
+		BackgroundColor3 = Widgets.PANEL,
+		BackgroundTransparency = 0.25,
+		BorderSizePixel = 0,
+	}, { Widgets.corner(14) })
+	for key, value in props do
+		(frame :: any)[key] = value
+	end
+	return frame
+end
 
 function Hud.new(gui: ScreenGui)
 	local player = Players.LocalPlayer
 	local state = ReplicatedStorage:WaitForChild("MatchState")
 	local remotes = ReplicatedStorage:WaitForChild("Remotes")
 
-	-- Top bar
-
-	local top = Widgets.panel({
-		Name = "TopBar",
+	-- Top: time left and balls left
+	local timer = bigLabel(44, {
 		AnchorPoint = Vector2.new(0.5, 0),
-		Position = UDim2.new(0.5, 0, 0, 8),
-		Size = UDim2.fromOffset(340, 0),
+		Position = UDim2.new(0.5, -60, 0, 4),
+		Size = UDim2.fromOffset(140, 0),
 		Parent = gui,
 	})
-	local title = Widgets.label("", 14, { LayoutOrder = 1, TextColor3 = Widgets.MUTED, TextXAlignment = CENTER, Parent = top })
-	local timer = Widgets.label("", 36, { LayoutOrder = 2, TextXAlignment = CENTER, Parent = top })
-	local status = Widgets.label("", 18, { LayoutOrder = 3, TextXAlignment = CENTER, Parent = top })
+	local alive = bigLabel(36, {
+		AnchorPoint = Vector2.new(0.5, 0),
+		Position = UDim2.new(0.5, 80, 0, 8),
+		Size = UDim2.fromOffset(120, 0),
+		Parent = gui,
+	})
 
-	-- Rules card
+	-- Below them: boost meter and slam charge
+	local meters = pill({
+		AnchorPoint = Vector2.new(0.5, 0),
+		Position = UDim2.new(0.5, 0, 0, 62),
+		Size = UDim2.fromOffset(250, 44),
+		Parent = gui,
+	})
+	bigLabel(24, { Position = UDim2.fromOffset(8, 0), Size = UDim2.fromOffset(32, 44), AutomaticSize = Enum.AutomaticSize.None, Parent = meters }).Text = "💨"
+	local track = Widgets.create("Frame", {
+		Position = UDim2.fromOffset(46, 15),
+		Size = UDim2.fromOffset(140, 14),
+		BackgroundColor3 = Widgets.BUTTON,
+		BorderSizePixel = 0,
+		Parent = meters,
+	}, { Widgets.corner(7) })
+	local fill = Widgets.create("Frame", {
+		Size = UDim2.fromScale(1, 1),
+		BackgroundColor3 = Widgets.GOOD,
+		BorderSizePixel = 0,
+		Parent = track,
+	}, { Widgets.corner(7) })
+	local slam = bigLabel(26, {
+		Position = UDim2.fromOffset(196, 0),
+		Size = UDim2.fromOffset(46, 44),
+		AutomaticSize = Enum.AutomaticSize.None,
+		Parent = meters,
+	})
 
-	local intro = Widgets.panel({
-		Name = "Intro",
+	local countdown = bigLabel(140, {
 		AnchorPoint = Vector2.new(0.5, 0.5),
-		Position = UDim2.fromScale(0.5, 0.55),
-		Size = UDim2.fromOffset(480, 0),
+		Position = UDim2.fromScale(0.5, 0.45),
+		Size = UDim2.fromOffset(400, 0),
+		TextColor3 = Widgets.ACCENT,
 		Parent = gui,
 	})
-	local introCategory = Widgets.label("", 14, { LayoutOrder = 1, TextColor3 = Widgets.ACCENT, TextXAlignment = CENTER, Parent = intro })
-	local introName = Widgets.label("", 40, { LayoutOrder = 2, TextXAlignment = CENTER, Parent = intro })
-	local introObjective = Widgets.label("", 20, { LayoutOrder = 3, TextXAlignment = CENTER, Parent = intro })
-	local introRole = Widgets.label("", 22, { LayoutOrder = 4, TextXAlignment = CENTER, Parent = intro })
-	local introRules = Widgets.label("", 15, { LayoutOrder = 5, Font = Widgets.FONT_REGULAR, Parent = intro })
-	local introScoring = Widgets.label("", 15, {
-		LayoutOrder = 6,
-		Font = Widgets.FONT_REGULAR,
-		TextColor3 = Widgets.MUTED,
-		Parent = intro,
-	})
-	local introCountdown = Widgets.label("", 16, { LayoutOrder = 7, TextColor3 = Widgets.ACCENT, TextXAlignment = CENTER, Parent = intro })
 
-	-- Announcements
+	local winner = Widgets.stack({
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.4),
+		Size = UDim2.fromOffset(700, 0),
+		Parent = gui,
+	}, 4)
+	bigLabel(110, { LayoutOrder = 1, TextStrokeTransparency = 1, Parent = winner }).Text = "👑"
+	local winnerNames = bigLabel(48, { LayoutOrder = 2, TextColor3 = Widgets.ACCENT, Parent = winner })
 
 	local feed = Widgets.stack({
-		Name = "Announcements",
 		AnchorPoint = Vector2.new(0.5, 0),
-		Position = UDim2.new(0.5, 0, 0, 150),
-		Size = UDim2.fromOffset(520, 0),
+		Position = UDim2.new(0.5, 0, 0, 120),
+		Size = UDim2.fromOffset(500, 0),
 		Parent = gui,
 	}, 4)
 	local announcementCount = 0
 	remotes.Announce.OnClientEvent:Connect(function(message: string)
 		announcementCount += 1
-		local line = Widgets.label(message, 20, {
-			LayoutOrder = announcementCount,
-			TextXAlignment = CENTER,
-			TextStrokeTransparency = 0.3,
-			Parent = feed,
-		})
+		local line = bigLabel(28, { LayoutOrder = announcementCount, Parent = feed })
+		line.Text = message
 		task.delay(ANNOUNCEMENT_TIME, function()
 			local fade = TweenService:Create(line, TweenInfo.new(0.5), { TextTransparency = 1, TextStrokeTransparency = 1 })
 			fade:Play()
@@ -88,55 +128,66 @@ function Hud.new(gui: ScreenGui)
 		end)
 	end)
 
+	local lastPhase = nil
+	local goUntil = 0
+	local lastCount = 0
+
 	local function refresh()
 		local phase = state:GetAttribute("Phase")
-		local info = ModeInfo.byId[state:GetAttribute("ModeId") or ""]
-		top.Visible = info ~= nil and (phase == "Intro" or phase == "Playing")
-		intro.Visible = info ~= nil and phase == "Intro"
-		if not info then
-			return
+		if phase ~= lastPhase then
+			lastPhase = phase
+			if phase == "Playing" then
+				goUntil = os.clock() + GO_TIME
+			end
 		end
-
-		title.Text = string.format(
-			"GAME %d OF %d  ·  %s",
-			state:GetAttribute("GameNumber") or 1,
-			state:GetAttribute("GameCount") or 1,
-			string.upper(info.name)
-		)
-
-		local role = ROLES[player:GetAttribute("Role") or ""]
-		local detail = player:GetAttribute("Status") or ""
-		if role then
-			status.Text = if detail ~= "" then `{role.label}  ·  {detail}` else role.label
-			status.TextColor3 = role.color
-		else
-			status.Text = detail
-			status.TextColor3 = Widgets.TEXT
-		end
-		status.Visible = status.Text ~= ""
-
-		introCategory.Text = string.upper(info.category)
-		introName.Text = info.name
-		introObjective.Text = info.objective
-		introRole.Text = if role then role.intro else ""
-		introRole.TextColor3 = if role then role.color else Widgets.TEXT
-		introRole.Visible = introRole.Text ~= ""
-		introRules.Text = "•  " .. table.concat(info.rules, "\n•  ")
-		introScoring.Text = info.scoring
+		local inRound = phase == "Countdown" or phase == "Playing"
+		timer.Visible = phase == "Playing"
+		alive.Visible = inRound
+		alive.Text = `👥 {state:GetAttribute("Alive") or 0}`
+		winner.Visible = phase == "Winner"
+		local names = state:GetAttribute("Winners") or ""
+		winnerNames.Text = if names ~= "" then names else "🤝"
 	end
 
 	local function tick()
 		local phase = state:GetAttribute("Phase")
-		local left = (state:GetAttribute("EndsAt") or 0) - workspace:GetServerTimeNow()
-		if phase == "Playing" then
+		local endsAt = state:GetAttribute("EndsAt") or 0
+		local now = workspace:GetServerTimeNow()
+		local left = endsAt - now
+
+		if timer.Visible then
 			timer.Text = Text.clock(left)
 			timer.TextColor3 = if left <= 10 then Widgets.BAD else Widgets.TEXT
-		elseif phase == "Intro" then
-			-- Show the full game length until play starts.
-			timer.Text = Text.clock(state:GetAttribute("GameTime") or 0)
-			timer.TextColor3 = Widgets.TEXT
-			introCountdown.Text = `Starting in {math.max(1, math.ceil(left))}`
 		end
+
+		-- Big numbers before a round (in the lobby circle and frozen in the arena), then GO!
+		local counting = endsAt > 0 and left > 0 and (phase == "Lobby" or phase == "Countdown")
+		if counting then
+			local number = math.ceil(left)
+			countdown.Text = tostring(number)
+			if number ~= lastCount then
+				lastCount = number
+				Sounds.play("Beep")
+			end
+		elseif phase == "Playing" and os.clock() < goUntil then
+			countdown.Text = "GO!"
+		end
+		countdown.Visible = counting or (phase == "Playing" and os.clock() < goUntil)
+		if not counting then
+			lastCount = 0
+		end
+
+		-- Meters, only while you have a ball.
+		local hasBall = BallController.myBall() ~= nil
+		meters.Visible = hasBall
+		local meter = BallController.boostMeter()
+		fill.Size = UDim2.fromScale(meter / 100, 1)
+		fill.BackgroundColor3 = if meter >= Config.BOOST_COST then Widgets.GOOD else Widgets.MUTED
+		local slamLeft = (player:GetAttribute("AbilityReadyAt") or 0) - now
+		slam.Text = if slamLeft > 0 then tostring(math.ceil(slamLeft)) else "💥"
+		slam.TextColor3 = if slamLeft > 0 then Widgets.MUTED else Widgets.TEXT
+		Input.setReady("Boost", meter >= Config.BOOST_COST)
+		Input.setReady("Ability", slamLeft <= 0)
 	end
 
 	return { refresh = refresh, tick = tick }

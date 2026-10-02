@@ -1,66 +1,73 @@
-local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 
--- Side-on camera. It copies the current map's CameraPart; if the part has a Follow attribute,
--- it instead slides sideways (and up) to keep the local character in view.
+local BallController = require(script.Parent.BallController)
+
+-- A fixed-angle camera above and behind your ball, so up on the screen is always forward and
+-- nobody has to learn camera controls. It widens as you speed up and shakes on big hits.
+-- Without a ball (knocked out, or joined mid-round) it follows someone still playing.
 local Camera = {}
 
--- A narrow field of view from far away flattens the perspective so the map reads as 2D.
-local FIELD_OF_VIEW = 30
--- How quickly a following camera catches up with the character. Higher is snappier.
-local FOLLOW_SHARPNESS = 6
--- How far above the character a following camera aims, unless the part sets OffsetY.
-local DEFAULT_OFFSET_Y = 6
+local OFFSET = Vector3.new(0, 48, 40)
+local FOLLOW_SHARPNESS = 10
+local FOV_REST = 60
+local FOV_FAST = 78
+local FAST_SPEED = 90
+local SNAP_DISTANCE = 150 -- farther than this (a teleport), cut instead of gliding
+
+local trauma = 0 -- 0 to 1; shake strength is its square
+
+-- Adds shake, e.g. 0.2 for a bump or 0.6 for a big slam.
+function Camera.shake(amount: number)
+	trauma = math.min(1, trauma + amount)
+end
+
+local function target(): BasePart?
+	local mine = BallController.myBall()
+	if mine and mine.PrimaryPart then
+		return mine.PrimaryPart
+	end
+	for _, model in workspace:WaitForChild("Balls"):GetChildren() do
+		if model:IsA("Model") and model.PrimaryPart then
+			return model.PrimaryPart
+		end
+	end
+	return nil
+end
 
 function Camera.start()
-	local player = Players.LocalPlayer
 	local camera = workspace.CurrentCamera
-	local followPart: BasePart? = nil
-	local followPosition = Vector3.zero
+	local focus = Vector3.zero
+	local fov = FOV_REST
 
-	-- The default camera scripts reset CameraType when the character respawns, so it's
-	-- reapplied every frame.
-	RunService:BindToRenderStep("Camera2D", Enum.RenderPriority.Camera.Value + 1, function(deltaTime)
+	RunService:BindToRenderStep("BallCamera", Enum.RenderPriority.Camera.Value + 1, function(deltaTime)
 		camera.CameraType = Enum.CameraType.Scriptable
-		camera.FieldOfView = FIELD_OF_VIEW
 
-		local map = workspace:FindFirstChild("Map")
-		local cameraPart = map and map:FindFirstChild("CameraPart")
-		if not cameraPart or not cameraPart:IsA("BasePart") then
-			return
-		end
-		if not cameraPart:GetAttribute("Follow") then
-			camera.CFrame = cameraPart.CFrame
-			return
-		end
-
-		-- Follow: keep the part's distance and angle, move it to track the character within
-		-- MinX..MaxX, and never lower than the part itself or higher than MaxY.
-		local base = cameraPart.Position
-		local isNewMap = followPart ~= cameraPart
-		local target = if isNewMap then base else followPosition
-		local root = player.Character and player.Character.PrimaryPart
-		if root then
-			local x = math.clamp(
-				root.Position.X,
-				cameraPart:GetAttribute("MinX") or -math.huge,
-				cameraPart:GetAttribute("MaxX") or math.huge
-			)
-			local y = math.clamp(
-				root.Position.Y + (cameraPart:GetAttribute("OffsetY") or DEFAULT_OFFSET_Y),
-				base.Y,
-				cameraPart:GetAttribute("MaxY") or math.huge
-			)
-			target = Vector3.new(x, y, base.Z)
+		local core = target()
+		local speed = 0
+		if core then
+			local goal = core.Position
+			if (goal - focus).Magnitude > SNAP_DISTANCE then
+				focus = goal
+			else
+				focus = focus:Lerp(goal, 1 - math.exp(-FOLLOW_SHARPNESS * deltaTime))
+			end
+			local velocity = core.AssemblyLinearVelocity
+			speed = Vector2.new(velocity.X, velocity.Z).Magnitude
 		end
 
-		if isNewMap then
-			followPart = cameraPart
-			followPosition = target
-		else
-			followPosition = followPosition:Lerp(target, 1 - math.exp(-FOLLOW_SHARPNESS * deltaTime))
-		end
-		camera.CFrame = cameraPart.CFrame.Rotation + followPosition
+		local goalFov = FOV_REST + (FOV_FAST - FOV_REST) * math.clamp(speed / FAST_SPEED, 0, 1)
+		fov += (goalFov - fov) * (1 - math.exp(-4 * deltaTime))
+		camera.FieldOfView = fov
+
+		trauma = math.max(0, trauma - deltaTime * 1.5)
+		local shake = trauma * trauma
+		local t = os.clock() * 25
+		local wobble = CFrame.Angles(
+			math.noise(t, 1) * 0.04 * shake,
+			math.noise(t, 2) * 0.04 * shake,
+			math.noise(t, 3) * 0.03 * shake
+		)
+		camera.CFrame = CFrame.lookAt(focus + OFFSET, focus) * wobble
 	end)
 end
 

@@ -1,5 +1,5 @@
 {
-  "name": "roblox-platformer",
+  "name": "brainrot-vs-brainrot",
   "tree": {
     "$className": "DataModel",
     "ReplicatedStorage": {
@@ -8,16 +8,16 @@
       },
       "Remotes": {
         "$className": "Folder",
-        "SetReady": {
+        "Boost": {
           "$className": "RemoteEvent"
         },
-        "ChooseColor": {
+        "Ability": {
           "$className": "RemoteEvent"
         },
-        "ChangeSetting": {
+        "Knockback": {
           "$className": "RemoteEvent"
         },
-        "FireBeam": {
+        "Effect": {
           "$className": "RemoteEvent"
         },
         "Announce": {
@@ -33,11 +33,6 @@
         "$path": "src/server"
       }
     },
-    "ServerStorage": {
-      "Maps": {
-        "$path": "src/maps"
-      }
-    },
     "StarterPlayer": {
       "$properties": {
         "EnableMouseLockOption": false
@@ -46,28 +41,24 @@
         "Client": {
           "$path": "src/client"
         }
-      },
-      "StarterCharacter": {
-        "$path": "src/character/StarterCharacter.model.json"
       }
     },
     "Workspace": {
       "$properties": {
         "FilteringEnabled": true,
-        "Gravity": 110
+        "Gravity": 150
       }
     },
     "Lighting": {
       "$properties": {
         "Ambient": [
-          0,
-          0,
-          0
+          0.35,
+          0.33,
+          0.45
         ],
         "Brightness": 2,
         "GlobalShadows": true,
-        "Outlines": false,
-        "Technology": "Voxel"
+        "Outlines": false
       }
     },
     "SoundService": {
