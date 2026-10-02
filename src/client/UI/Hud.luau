@@ -1,26 +1,24 @@
-local Players = game:GetService("Players")
+local Lighting = game:GetService("Lighting")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local TweenService = game:GetService("TweenService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Config = require(Shared:WaitForChild("Config"))
 local Text = require(Shared:WaitForChild("Text"))
-local BallController = require(script.Parent.Parent.BallController)
-local Input = require(script.Parent.Parent.Input)
+local AimController = require(script.Parent.Parent.AimController)
+local MyMatch = require(script.Parent.Parent.MyMatch)
 local Sounds = require(script.Parent.Parent.Sounds)
 local Widgets = require(script.Parent.Widgets)
 
--- Everything on screen: the timer and how many are left, your boost meter and slam charge,
--- 3-2-1-GO, short announcements and the winner. Icons and numbers, as few words as possible
--- (see CLAUDE.md).
+-- The match HUD: both sides' hearts and names, the phase and its timer, a pointing hand while
+-- you aim, the round result and the match winner, and a red tint in sudden death. Icons and
+-- numbers, as few words as possible (see CLAUDE.md). Nothing shows in the lobby.
 local Hud = {}
 
-local ANNOUNCEMENT_TIME = 3
-local GO_TIME = 1
+local PHASE_ICONS = { Draft = "🃏", Aim = "🎯", Battle = "⚔️" }
+local SUDDEN_DEATH_TINT = Color3.fromRGB(255, 170, 170)
 
 local CENTER = Enum.TextXAlignment.Center
 
--- Big outlined text that reads well over the game.
 local function bigLabel(size: number, props: { [string]: any }): TextLabel
 	local label = Widgets.label("", size, {
 		Font = Enum.Font.GothamBlack,
@@ -33,161 +31,130 @@ local function bigLabel(size: number, props: { [string]: any }): TextLabel
 	return label
 end
 
-local function pill(props: { [string]: any }): Frame
-	local frame = Widgets.create("Frame", {
-		BackgroundColor3 = Widgets.PANEL,
-		BackgroundTransparency = 0.25,
-		BorderSizePixel = 0,
-	}, { Widgets.corner(14) })
-	for key, value in props do
-		(frame :: any)[key] = value
-	end
-	return frame
-end
-
 function Hud.new(gui: ScreenGui)
-	local player = Players.LocalPlayer
-	local state = ReplicatedStorage:WaitForChild("MatchState")
-	local remotes = ReplicatedStorage:WaitForChild("Remotes")
-
-	-- Top: time left and balls left
-	local timer = bigLabel(44, {
-		AnchorPoint = Vector2.new(0.5, 0),
-		Position = UDim2.new(0.5, -60, 0, 4),
-		Size = UDim2.fromOffset(140, 0),
-		Parent = gui,
-	})
-	local alive = bigLabel(36, {
-		AnchorPoint = Vector2.new(0.5, 0),
-		Position = UDim2.new(0.5, 80, 0, 8),
-		Size = UDim2.fromOffset(120, 0),
-		Parent = gui,
-	})
-
-	-- Below them: boost meter and slam charge
-	local meters = pill({
-		AnchorPoint = Vector2.new(0.5, 0),
-		Position = UDim2.new(0.5, 0, 0, 62),
-		Size = UDim2.fromOffset(250, 44),
-		Parent = gui,
-	})
-	bigLabel(24, { Position = UDim2.fromOffset(8, 0), Size = UDim2.fromOffset(32, 44), AutomaticSize = Enum.AutomaticSize.None, Parent = meters }).Text = "💨"
-	local track = Widgets.create("Frame", {
-		Position = UDim2.fromOffset(46, 15),
-		Size = UDim2.fromOffset(140, 14),
-		BackgroundColor3 = Widgets.BUTTON,
-		BorderSizePixel = 0,
-		Parent = meters,
-	}, { Widgets.corner(7) })
-	local fill = Widgets.create("Frame", {
+	local root = Widgets.create("Frame", {
+		Name = "Hud",
 		Size = UDim2.fromScale(1, 1),
-		BackgroundColor3 = Widgets.GOOD,
-		BorderSizePixel = 0,
-		Parent = track,
-	}, { Widgets.corner(7) })
-	local slam = bigLabel(26, {
-		Position = UDim2.fromOffset(196, 0),
-		Size = UDim2.fromOffset(46, 44),
-		AutomaticSize = Enum.AutomaticSize.None,
-		Parent = meters,
-	})
-
-	local countdown = bigLabel(140, {
-		AnchorPoint = Vector2.new(0.5, 0.5),
-		Position = UDim2.fromScale(0.5, 0.45),
-		Size = UDim2.fromOffset(400, 0),
-		TextColor3 = Widgets.ACCENT,
+		BackgroundTransparency = 1,
 		Parent = gui,
 	})
 
-	local winner = Widgets.stack({
-		AnchorPoint = Vector2.new(0.5, 0.5),
-		Position = UDim2.fromScale(0.5, 0.4),
-		Size = UDim2.fromOffset(700, 0),
-		Parent = gui,
-	}, 4)
-	bigLabel(110, { LayoutOrder = 1, TextStrokeTransparency = 1, Parent = winner }).Text = "👑"
-	local winnerNames = bigLabel(48, { LayoutOrder = 2, TextColor3 = Widgets.ACCENT, Parent = winner })
+	-- One card per side, top left and top right: hearts over the name.
+	local function sideCard(side: string): (Frame, TextLabel, TextLabel, UIStroke)
+		local isLeft = side == "Left"
+		local card = Widgets.panel({
+			AnchorPoint = Vector2.new(if isLeft then 0 else 1, 0),
+			Position = UDim2.new(if isLeft then 0 else 1, if isLeft then 12 else -12, 0, 8),
+			Size = UDim2.fromOffset(190, 0),
+			Parent = root,
+		})
+		local stroke = Widgets.create("UIStroke", { Color = Config.SIDE_COLORS[side], Thickness = 3, Parent = card })
+		local hearts = bigLabel(26, { LayoutOrder = 1, TextStrokeTransparency = 1, Parent = card })
+		local name = bigLabel(16, {
+			LayoutOrder = 2,
+			TextColor3 = Config.SIDE_COLORS[side],
+			TextWrapped = false,
+			TextTruncate = Enum.TextTruncate.AtEnd,
+			Parent = card,
+		})
+		return card, hearts, name, stroke
+	end
+	local _, leftHearts, leftName, leftStroke = sideCard("Left")
+	local _, rightHearts, rightName, rightStroke = sideCard("Right")
 
-	local feed = Widgets.stack({
+	local timer = bigLabel(40, {
 		AnchorPoint = Vector2.new(0.5, 0),
-		Position = UDim2.new(0.5, 0, 0, 120),
-		Size = UDim2.fromOffset(500, 0),
-		Parent = gui,
-	}, 4)
-	local announcementCount = 0
-	remotes.Announce.OnClientEvent:Connect(function(message: string)
-		announcementCount += 1
-		local line = bigLabel(28, { LayoutOrder = announcementCount, Parent = feed })
-		line.Text = message
-		task.delay(ANNOUNCEMENT_TIME, function()
-			local fade = TweenService:Create(line, TweenInfo.new(0.5), { TextTransparency = 1, TextStrokeTransparency = 1 })
-			fade:Play()
-			fade.Completed:Wait()
-			line:Destroy()
-		end)
-	end)
+		Position = UDim2.new(0.5, 0, 0, 6),
+		Size = UDim2.fromOffset(260, 0),
+		Parent = root,
+	})
 
-	local lastPhase = nil
-	local goUntil = 0
-	local lastCount = 0
+	local banner = Widgets.stack({
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.42),
+		Size = UDim2.fromOffset(700, 0),
+		Parent = root,
+	}, 4)
+	local bannerIcon = bigLabel(120, { LayoutOrder = 1, TextStrokeTransparency = 1, Parent = banner })
+	local bannerText = bigLabel(44, { LayoutOrder = 2, TextColor3 = Widgets.ACCENT, Parent = banner })
+
+	local hint = bigLabel(64, {
+		AnchorPoint = Vector2.new(0.5, 1),
+		Position = UDim2.new(0.5, 0, 1, -30),
+		Size = UDim2.fromOffset(120, 0),
+		TextStrokeTransparency = 1,
+		Parent = root,
+	})
+
+	local tint = Instance.new("ColorCorrectionEffect")
+	tint.Name = "SuddenDeathTint"
+	tint.Enabled = false
+	tint.TintColor = SUDDEN_DEATH_TINT
+	tint.Parent = Lighting
+
+	local lastBeep = 0
+
+	local function hearts(count: number): string
+		count = math.clamp(count, 0, Config.HEARTS)
+		return string.rep("❤️", count) .. string.rep("🖤", Config.HEARTS - count)
+	end
 
 	local function refresh()
-		local phase = state:GetAttribute("Phase")
-		if phase ~= lastPhase then
-			lastPhase = phase
-			if phase == "Playing" then
-				goUntil = os.clock() + GO_TIME
-			end
+		local state = MyMatch.state()
+		root.Visible = state ~= nil
+		tint.Enabled = state ~= nil and state:GetAttribute("SuddenDeath") == true
+		if not state then
+			return
 		end
-		local inRound = phase == "Countdown" or phase == "Playing"
-		timer.Visible = phase == "Playing"
-		alive.Visible = inRound
-		alive.Text = `👥 {state:GetAttribute("Alive") or 0}`
-		winner.Visible = phase == "Winner"
-		local names = state:GetAttribute("Winners") or ""
-		winnerNames.Text = if names ~= "" then names else "🤝"
+		local mySide = MyMatch.side()
+		leftHearts.Text = hearts(state:GetAttribute("LeftHearts") or 0)
+		rightHearts.Text = hearts(state:GetAttribute("RightHearts") or 0)
+		leftName.Text = (if mySide == "Left" then "▶ " else "") .. tostring(state:GetAttribute("LeftName") or "")
+		rightName.Text = tostring(state:GetAttribute("RightName") or "") .. (if mySide == "Right" then " ◀" else "")
+		leftStroke.Thickness = if mySide == "Left" then 5 else 2
+		rightStroke.Thickness = if mySide == "Right" then 5 else 2
+
+		local phase = MyMatch.phase()
+		if phase == "Resolve" then
+			local winner = state:GetAttribute("RoundWinner")
+			bannerIcon.Text = if winner == mySide then "🏆" elseif winner == "Draw" then "🤝" else "💔"
+			bannerText.Text = ""
+		elseif phase == "Over" then
+			bannerIcon.Text = "👑"
+			bannerText.Text = tostring(state:GetAttribute("MatchWinner") or "")
+		end
+		banner.Visible = phase == "Resolve" or phase == "Over"
 	end
 
 	local function tick()
-		local phase = state:GetAttribute("Phase")
-		local endsAt = state:GetAttribute("EndsAt") or 0
-		local now = workspace:GetServerTimeNow()
-		local left = endsAt - now
+		if not root.Visible then
+			return
+		end
+		local phase = MyMatch.phase()
+		local left = MyMatch.timeLeft()
+		local icon = PHASE_ICONS[phase]
+		local state = MyMatch.state()
+		local suddenDeath = state and state:GetAttribute("SuddenDeath") == true
+		if icon then
+			local seconds = if phase == "Battle" then Text.clock(left) else tostring(math.max(0, math.ceil(left)))
+			timer.Text = `{if suddenDeath then "⚠️" else icon} {seconds}`
+			timer.TextColor3 = if suddenDeath or left <= 3 then Widgets.BAD else Widgets.TEXT
+		end
+		timer.Visible = icon ~= nil
 
-		if timer.Visible then
-			timer.Text = Text.clock(left)
-			timer.TextColor3 = if left <= 10 then Widgets.BAD else Widgets.TEXT
+		-- Beep through the last 3 seconds of drafting and aiming.
+		local whole = math.ceil(left)
+		if (phase == "Draft" or phase == "Aim") and whole <= 3 and whole >= 1 and whole ~= lastBeep then
+			lastBeep = whole
+			Sounds.play("Beep")
+		elseif whole > 3 then
+			lastBeep = 0
 		end
 
-		-- Big numbers before a round (in the lobby circle and frozen in the arena), then GO!
-		local counting = endsAt > 0 and left > 0 and (phase == "Lobby" or phase == "Countdown")
-		if counting then
-			local number = math.ceil(left)
-			countdown.Text = tostring(number)
-			if number ~= lastCount then
-				lastCount = number
-				Sounds.play("Beep")
-			end
-		elseif phase == "Playing" and os.clock() < goUntil then
-			countdown.Text = "GO!"
-		end
-		countdown.Visible = counting or (phase == "Playing" and os.clock() < goUntil)
-		if not counting then
-			lastCount = 0
-		end
-
-		-- Meters, only while you have a ball.
-		local hasBall = BallController.myBall() ~= nil
-		meters.Visible = hasBall
-		local meter = BallController.boostMeter()
-		fill.Size = UDim2.fromScale(meter / 100, 1)
-		fill.BackgroundColor3 = if meter >= Config.BOOST_COST then Widgets.GOOD else Widgets.MUTED
-		local slamLeft = (player:GetAttribute("AbilityReadyAt") or 0) - now
-		slam.Text = if slamLeft > 0 then tostring(math.ceil(slamLeft)) else "💥"
-		slam.TextColor3 = if slamLeft > 0 then Widgets.MUTED else Widgets.TEXT
-		Input.setReady("Boost", meter >= Config.BOOST_COST)
-		Input.setReady("Ability", slamLeft <= 0)
+		-- A bobbing hand while you aim, a check once you've locked in.
+		hint.Visible = phase == "Aim"
+		hint.Text = if AimController.isLocked() then "✅" else "👆"
+		hint.Position = UDim2.new(0.5, 0, 1, -30 - math.abs(math.sin(os.clock() * 4)) * 12)
 	end
 
 	return { refresh = refresh, tick = tick }

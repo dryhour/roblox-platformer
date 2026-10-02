@@ -1,10 +1,10 @@
 local Config = require(script.Parent.Config)
 
--- The playable brainrots: their class (how they play) and their look (how they're recognized).
+-- The ball roster (the design doc's BallRegistry), themed as brainrots. Each one has stats, a
+-- rarity, an ability (a module in src/server/Skills) and a look.
 --
--- Every ball has the same invisible physics sphere; the look is a set of parts that follows it
--- around facing the way it rolls. Looks are described below in look space: the ball's center is
--- the origin, forward is -Z, up is +Y and right is +X. The first part is the body.
+-- Looks are built from parts around the ball's center: forward is -Z, up is +Y, right is +X.
+-- The first part is the body. Balls face the way they roll.
 
 export type PartSpec = {
 	shape: "Ball" | "Block" | "Cylinder" | "Wedge",
@@ -16,28 +16,25 @@ export type PartSpec = {
 	spin: number?, -- radians per second around the part's own Z axis, e.g. a propeller
 }
 
-export type Class = {
-	density: number, -- all balls are the same size, so this sets weight
-	topSpeed: number,
-	accel: number,
-	elasticity: number,
+export type Stats = {
+	health: number,
+	mass: number, -- heavier balls deal more and take less in collisions
+	speed: number, -- balls keep rolling at this speed the whole battle
+	impactPower: number,
 }
 
 export type Brainrot = {
 	id: string,
 	name: string,
 	emoji: string,
-	class: string,
+	rarity: string, -- a key of Config.RARITIES
+	stats: Stats,
+	skill: string, -- module name in src/server/Skills
+	skillIcon: string,
+	skillHint: string, -- one or two words for the draft card
 	color: Color3,
 	word: string, -- pops up when it hits something
 	look: { PartSpec },
-}
-
-local classes: { [string]: Class } = {
-	Striker = { density = 0.7, topSpeed = 72, accel = 150, elasticity = 0.55 },
-	Juggernaut = { density = 1.8, topSpeed = 54, accel = 110, elasticity = 0.15 },
-	Trickster = { density = 1, topSpeed = 62, accel = 125, elasticity = 0.85 },
-	Support = { density = 1.1, topSpeed = 62, accel = 130, elasticity = 0.45 },
 }
 
 local SIZE = Config.BALL_SIZE
@@ -76,21 +73,53 @@ local SHARK = Color3.fromRGB(70, 150, 230)
 local CROC = Color3.fromRGB(80, 150, 70)
 local BANANA = Color3.fromRGB(250, 215, 60)
 local MONKEY = Color3.fromRGB(140, 92, 55)
+local LEAVES = Color3.fromRGB(70, 135, 60)
+local BARK = Color3.fromRGB(110, 75, 45)
+local COFFEE = Color3.fromRGB(205, 160, 110)
+local STEEL = Color3.fromRGB(200, 205, 215)
 
 local list: { Brainrot } = {
+	{
+		id = "ChimpanziniBananini",
+		name = "Chimpanzini Bananini",
+		emoji = "🍌",
+		rarity = "Common",
+		stats = { health = 1400, mass = 15, speed = 50, impactPower = 1 },
+		skill = "Bananas",
+		skillIcon = "🍌",
+		skillHint = "Bananas",
+		color = BANANA,
+		word = "BANANA!",
+		look = join({ ball(SIZE, Vector3.zero, BANANA) }, {
+			ball(5, Vector3.new(0, 0.1, -1.7), MONKEY),
+			ball(1.6, Vector3.new(-3.4, 0.9, -0.5), MONKEY),
+			ball(1.6, Vector3.new(3.4, 0.9, -0.5), MONKEY),
+		}, eyes(1.8, 0.7, -3.75, 1.3), {
+			block(Vector3.new(1.6, 0.3, 0.3), Vector3.new(0, -0.9, -4.05), Color3.fromRGB(60, 35, 20)),
+			{
+				shape = "Cylinder",
+				size = Vector3.new(1.6, 0.8, 0.8),
+				at = Vector3.new(0, 4.1, 0),
+				rotate = Vector3.new(0, 0, 90),
+				color = Color3.fromRGB(90, 60, 30),
+			},
+		}),
+	},
 	{
 		id = "TungTungTungSahur",
 		name = "Tung Tung Tung Sahur",
 		emoji = "🪵",
-		class = "Juggernaut",
+		rarity = "Rare",
+		stats = { health = 1800, mass = 30, speed = 42, impactPower = 1 },
+		skill = "Charge",
+		skillIcon = "📈",
+		skillHint = "Grows",
 		color = WOOD,
 		word = "BONK!",
 		look = join({ ball(SIZE, Vector3.zero, WOOD, Enum.Material.Wood) }, eyes(2.3, 0.8, -3.05, 1.7), {
-			-- Angry eyebrows and a flat mouth
 			block(Vector3.new(1.5, 0.35, 0.4), Vector3.new(-1.15, 1.95, -3), BLACK, Vector3.new(0, 0, -15)),
 			block(Vector3.new(1.5, 0.35, 0.4), Vector3.new(1.15, 1.95, -3), BLACK, Vector3.new(0, 0, 15)),
 			block(Vector3.new(2, 0.35, 0.4), Vector3.new(0, -1, -3.3), BLACK),
-			-- The bat, held upright on the right
 			{
 				shape = "Cylinder",
 				size = Vector3.new(7, 0.9, 0.9),
@@ -105,15 +134,17 @@ local list: { Brainrot } = {
 		id = "TralaleroTralala",
 		name = "Tralalero Tralala",
 		emoji = "🦈",
-		class = "Striker",
+		rarity = "Epic",
+		stats = { health = 1100, mass = 10, speed = 60, impactPower = 1.25 },
+		skill = "Vampire",
+		skillIcon = "🧛",
+		skillHint = "Steals HP",
 		color = SHARK,
 		word = "SPLASH!",
 		look = join({ ball(SIZE, Vector3.zero, SHARK) }, {
-			-- White belly, with the eyes above it and a wide grin on it
 			ball(5.6, Vector3.new(0, -0.9, -1.4), WHITE),
 		}, eyes(2.4, 1.3, -2.9, 1.5), {
 			block(Vector3.new(2.6, 0.35, 0.4), Vector3.new(0, -0.4, -4.05), BLACK),
-			-- Fins
 			{ shape = "Wedge", size = Vector3.new(0.6, 3, 3), at = Vector3.new(0, 4.3, 0.4), color = SHARK },
 			{
 				shape = "Wedge",
@@ -122,24 +153,53 @@ local list: { Brainrot } = {
 				rotate = Vector3.new(0, 180, 0),
 				color = SHARK,
 			},
-			-- Blue sneakers
 			block(Vector3.new(1.5, 1, 2.4), Vector3.new(-1.3, -3.4, -0.5), Color3.fromRGB(40, 80, 200)),
 			block(Vector3.new(1.5, 1, 2.4), Vector3.new(1.3, -3.4, -0.5), Color3.fromRGB(40, 80, 200)),
+		}),
+	},
+	{
+		id = "BrrBrrPatapim",
+		name = "Brr Brr Patapim",
+		emoji = "🌳",
+		rarity = "Epic",
+		stats = { health = 1300, mass = 16, speed = 50, impactPower = 0.95 },
+		skill = "Vines",
+		skillIcon = "🌿",
+		skillHint = "Vines",
+		color = LEAVES,
+		word = "BRR BRR!",
+		look = join({ ball(SIZE, Vector3.zero, LEAVES, Enum.Material.Grass) }, eyes(2.2, 1, -3, 1.4), {
+			-- Long nose and a little hat
+			block(Vector3.new(0.9, 0.9, 2.8), Vector3.new(0, 0, -4.4), BARK),
+			{
+				shape = "Cylinder",
+				size = Vector3.new(1.2, 3, 3),
+				at = Vector3.new(0, 3.9, 0),
+				rotate = Vector3.new(0, 0, 90),
+				color = BARK,
+			},
+			-- Twig arms and big feet
+			block(Vector3.new(3, 0.5, 0.5), Vector3.new(-4.4, 0.5, 0), BARK, Vector3.new(0, 0, 30)),
+			block(Vector3.new(3, 0.5, 0.5), Vector3.new(4.4, 0.5, 0), BARK, Vector3.new(0, 0, -30)),
+			block(Vector3.new(1.8, 0.8, 3), Vector3.new(-1.4, -3.4, -0.8), BARK),
+			block(Vector3.new(1.8, 0.8, 3), Vector3.new(1.4, -3.4, -0.8), BARK),
 		}),
 	},
 	{
 		id = "BombardiroCrocodilo",
 		name = "Bombardiro Crocodilo",
 		emoji = "🐊",
-		class = "Trickster",
+		rarity = "Legendary",
+		stats = { health = 1300, mass = 18, speed = 48, impactPower = 0.9 },
+		skill = "Cannon",
+		skillIcon = "💣",
+		skillHint = "Turrets",
 		color = CROC,
 		word = "BOOM!",
 		look = join({ ball(SIZE, Vector3.zero, CROC) }, eyes(2.2, 2, -2.4, 1.5), {
-			-- Snout with nostrils
 			block(Vector3.new(3.4, 1.6, 3.6), Vector3.new(0, -0.6, -4.2), Color3.fromRGB(65, 125, 55)),
 			ball(0.45, Vector3.new(-0.6, 0.25, -5.9), BLACK),
 			ball(0.45, Vector3.new(0.6, 0.25, -5.9), BLACK),
-			-- Bomber wings and tail
 			block(Vector3.new(11, 0.35, 2.6), Vector3.new(0, 0.2, 0.6), Color3.fromRGB(150, 155, 165)),
 			{
 				shape = "Wedge",
@@ -148,7 +208,6 @@ local list: { Brainrot } = {
 				rotate = Vector3.new(0, 180, 0),
 				color = Color3.fromRGB(150, 155, 165),
 			},
-			-- Propeller on the nose
 			ball(0.8, Vector3.new(0, -0.6, -6.2), Color3.fromRGB(90, 90, 95)),
 			{
 				shape = "Block",
@@ -160,27 +219,30 @@ local list: { Brainrot } = {
 		}),
 	},
 	{
-		id = "ChimpanziniBananini",
-		name = "Chimpanzini Bananini",
-		emoji = "🍌",
-		class = "Support",
-		color = BANANA,
-		word = "BANANA!",
-		look = join({ ball(SIZE, Vector3.zero, BANANA) }, {
-			-- Monkey face and ears
-			ball(5, Vector3.new(0, 0.1, -1.7), MONKEY),
-			ball(1.6, Vector3.new(-3.4, 0.9, -0.5), MONKEY),
-			ball(1.6, Vector3.new(3.4, 0.9, -0.5), MONKEY),
-		}, eyes(1.8, 0.7, -3.75, 1.3), {
-			block(Vector3.new(1.6, 0.3, 0.3), Vector3.new(0, -0.9, -4.05), Color3.fromRGB(60, 35, 20)),
-			-- Banana stem
+		id = "CappuccinoAssassino",
+		name = "Cappuccino Assassino",
+		emoji = "☕",
+		rarity = "Mythic",
+		stats = { health = 1000, mass = 12, speed = 58, impactPower = 1.15 },
+		skill = "BlackHole",
+		skillIcon = "🌀",
+		skillHint = "Black hole",
+		color = COFFEE,
+		word = "SLICE!",
+		look = join({ ball(SIZE, Vector3.zero, COFFEE) }, {
+			-- Milk foam on top, and a ninja mask
 			{
 				shape = "Cylinder",
-				size = Vector3.new(1.6, 0.8, 0.8),
-				at = Vector3.new(0, 4.1, 0),
+				size = Vector3.new(1.4, 6, 6),
+				at = Vector3.new(0, 3.1, 0),
 				rotate = Vector3.new(0, 0, 90),
-				color = Color3.fromRGB(90, 60, 30),
+				color = WHITE,
 			},
+			block(Vector3.new(7.2, 1.3, 7.2), Vector3.new(0, 0.9, 0), BLACK),
+		}, eyes(2.2, 0.9, -3.4, 1), {
+			-- Crossed katanas on the back
+			block(Vector3.new(0.3, 0.3, 8), Vector3.new(-0.8, 1, 3.6), STEEL, Vector3.new(0, 30, 60)),
+			block(Vector3.new(0.3, 0.3, 8), Vector3.new(0.8, 1, 3.6), STEEL, Vector3.new(0, -30, -60)),
 		}),
 	},
 }
@@ -193,18 +255,34 @@ end
 local Brainrots = {
 	list = list,
 	byId = byId,
-	classes = classes,
-	default = list[1].id,
 }
 
--- The brainrot with this id, or the default one if the id is unknown. Takes attribute values
--- as they come, so callers needn't check them.
+-- The brainrot with this id, or the first one if the id is unknown. Takes attribute values as
+-- they come, so callers needn't check them.
 function Brainrots.get(id: unknown): Brainrot
-	return (if typeof(id) == "string" then byId[id] else nil) or byId[Brainrots.default]
+	return (if typeof(id) == "string" then byId[id] else nil) or list[1]
 end
 
-function Brainrots.classOf(id: unknown): Class
-	return classes[Brainrots.get(id).class]
+-- `count` different brainrots, picked at random with rarer ones less likely.
+function Brainrots.roll(count: number, rng: Random): { string }
+	local pool = table.clone(list)
+	local picked = {}
+	while #picked < count and #pool > 0 do
+		local total = 0
+		for _, brainrot in pool do
+			total += Config.RARITIES[brainrot.rarity].weight
+		end
+		local roll = rng:NextNumber() * total
+		for index, brainrot in pool do
+			roll -= Config.RARITIES[brainrot.rarity].weight
+			if roll <= 0 or index == #pool then
+				table.insert(picked, brainrot.id)
+				table.remove(pool, index)
+				break
+			end
+		end
+	end
+	return picked
 end
 
 return Brainrots

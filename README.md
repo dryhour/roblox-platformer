@@ -1,23 +1,36 @@
 # Brainrot VS Brainrot
 
-A physics arena battler for Roblox. Every player is a ball dressed up as a brainrot (Tung Tung Tung Sahur, Tralalero Tralala, Bombardiro Crocodilo, Chimpanzini Bananini). Roll, build momentum, boost and slam into each other to knock everyone else off a crumbling arena. The last brainrot standing wins.
+A Roblox physics auto-battler, based on the viral "ball vs ball" simulation videos. Two players each pick a ball, aim it, and let go. The balls bounce around an enclosed box on their own, slam into each other, set off their abilities and lose health until one breaks. Lose a round and you lose a heart; everyone has 3.
 
-The design is in the Brainrot VS Brainrot blueprint. Players learn by playing, not reading: see [CLAUDE.md](CLAUDE.md).
+The game follows the Ball VS Ball design doc, with every ball themed as a brainrot (from the Brainrot VS Brainrot blueprint). Players learn by playing, not reading: see [CLAUDE.md](CLAUDE.md).
 
-## Current state
+## How a match works
 
-This is the blueprint's MVP (section 23):
+1. **Lobby**: walk your avatar onto the blue ⚔️ pad. When two players are on it, they're matched 1v1. Or stand on the purple 🤖 pad to play a bot.
+2. **Draft (10s)**: pick one of three random balls. Rarer balls come up less often.
+3. **Aim (6s)**: a line shows where your ball will go, bouncing off the walls. Point and lock in.
+4. **Battle (up to 45s)**: both balls launch at once and fight on their own. After 30 seconds, sudden death starts: the walls close in, turn red, and every hit does 2.5× damage. If both balls survive, the one with more of its health left wins.
+5. **Resolve**: the loser loses a heart (🏆 / 💔). A draw costs nobody a heart.
+6. Repeat from the draft until someone is out of hearts (👑). Leaving mid-match forfeits it.
 
-- **Lobby**: roll around freely. Roll onto a brainrot's glowing pad to become it. When everyone is in the green circle, the round counts down. There are bumpers to practice on.
-- **Last Brainrot Standing**: everyone spawns in a ring on a round arena over the void. After 10 seconds the edge starts crumbling inward; tiles turn red before they drop. Fall off and you're out (you then watch someone still playing). The last ball left wins, or everyone left after 2 minutes shares the win.
-- **Movement**: rolling with momentum (top speed builds the longer you roll straight, and sharp turns bleed it), jump, boost (uses a meter), and brake.
-- **Collisions**: the server works out knockback from how fast each ball was moving into the other, its class's weight, and whether it just boosted.
-- **One ability, Slam**: a shockwave that knocks nearby balls away. Used in the air, you dive into the ground first.
-- **4 brainrots, 4 classes**: Juggernaut (heavy and slow), Striker (light and fast), Trickster (bouncy), Support (balanced).
-- **Feel**: comic hit words ("BONK!", "SPLASH!"), particle bursts, shockwave rings, camera shake, a camera that widens with speed, trails, and confetti for the winner.
-- **Every device**: keyboard, gamepad and touch, with an on-screen joystick and buttons on phones and tablets.
+## The balls
 
-Not built yet (later phases in the blueprint): HP/durability, class-specific abilities and ultimates, team and soccer modes, more hazards (ice, mud, hammers, lasers), off-screen indicators, coins, XP, cosmetics and saving player data. The sounds are Roblox built-ins; swap in better ones in `Config.Sounds`.
+| Brainrot | Rarity | Ability (doc ball) | What it does |
+|---|---|---|---|
+| 🍌 Chimpanzini Bananini | Common | Bananas (Apple) | Drops a banana every 3s. Rolling over your own heals 15%; the other ball touching one makes it explode for 120. |
+| 🪵 Tung Tung Tung Sahur | Rare | Charge | Grows 2% bigger and heavier every second. Each wall bounce adds +5% to its next hit (up to 10). |
+| 🦈 Tralalero Tralala | Epic | Vampire | Heals 35% of the damage it deals, then gets a 15% speed boost for 2s. |
+| 🌳 Brr Brr Patapim | Epic | Vines (Spider) | Each wall bounce stretches a vine back to its last bounce point. The other ball crossing a vine is slowed 60% and takes 40 damage a second. |
+| 🐊 Bombardiro Crocodilo | Legendary | Cannon | Wall bounces plant turrets (up to 3) that fire a homing shot for 65 every 1.5s. |
+| ☕ Cappuccino Assassino | Mythic | Black Hole | Below 25% health, opens a black hole for 3s that pulls the other ball in and switches off its ability. |
+
+Collision damage for each ball is `relative speed × its impact power × (its mass ÷ the other's mass, between 0.5 and 2) × 1.5 + 25`. Every wall bounce also chips 10 health. All of these numbers are in `src/shared/Config.luau` and `src/shared/Brainrots.luau`.
+
+## Not built yet
+
+These are from the design doc's later phases: 2v2, the once-per-match Collection Pick, coins and XP, the gacha machine, trading, and saving player data. The sounds are Roblox built-ins; swap in better ones in `Config.Sounds`.
+
+Where this differs from the doc: battles last up to 45s as written, but sudden death starts at 30s instead of 40s so the shrinking walls have time to matter. The doc doesn't have walls chip health; that's here because balls are meant to lose health bouncing around.
 
 ## Setup
 
@@ -27,57 +40,45 @@ This project uses [Rojo](https://rojo.space) to sync code from this folder into 
 2. Install the Rojo plugin in Studio, either with `rojo plugin install` or from the Creator Store. **The plugin version must match the server version**, or Studio will refuse to connect. If `rojo --version` doesn't print 7.7.0-rc.1, an older Rojo earlier in your PATH is winning. Run `~/.aftman/bin/rojo serve`, or put `~/.aftman/bin` first in your PATH.
 3. Run `rojo serve` in this folder.
 4. In Studio, open a place and go to **Plugins → Rojo → Connect**.
-5. Delete anything left over from older versions of this project or from the Baseplate template: a `Map` or `Baseplate` in Workspace, a `Maps` folder in ServerStorage, a `StarterCharacter` in StarterPlayer. (The server also removes `Map`, `Baseplate` and `SpawnLocation` when it starts.)
+5. Delete anything left over from older versions of this project: `StarterPlayer.StarterCharacter`, `ServerStorage.Maps`, `ReplicatedStorage.MatchState`. (The server removes leftovers in Workspace itself, and makes its own `ReplicatedStorage.Remotes`.)
 
 Sync only goes one way, from files to Studio. Edit scripts here, not in Studio.
 
 ## Testing
 
-Press **Play**. In Studio a round can start with one player: roll into the green circle. Alone, the round lasts until you fall off or time runs out.
-
-To test collisions, use **Test → Clients and Servers** with 2 or more players, and roll every player into the circle. To try touch controls, use Studio's device emulator (**Test → Device**).
-
-On a live server a round needs at least 2 players.
+Press **Play** and walk onto the 🤖 pad to play a bot. For a real 1v1, use **Test → Clients and Servers** with 2 players and walk both onto the ⚔️ pad. To try touch controls, use Studio's device emulator (**Test → Device**).
 
 ## Controls
 
-| Action | Keyboard | Gamepad | Touch |
-|---|---|---|---|
-| Roll | WASD or arrow keys | Left stick | Joystick (put your thumb anywhere on the left half) |
-| Jump | Space | A | ▲ |
-| Boost | Shift | X or R2 | 💨 |
-| Slam | E or F | Y or R1 | 💥 |
-| Brake (hold) | Ctrl or C | B or L2 | ✋ |
+The lobby uses normal Roblox avatar controls. In a match:
 
-The blueprint puts brake on Space and jump on a double-tap. Here Space jumps and brake has its own key, which is easier to pick up.
-
-All input goes through `src/client/Input.luau`, which also draws the touch controls.
+| | Mouse | Touch | Gamepad | Keyboard |
+|---|---|---|---|---|
+| Pick a ball | Click a card | Tap a card | Select a card, A | |
+| Aim | Move the mouse | Drag | Left stick | A/D or arrow keys |
+| Lock in | Click | Let go | A | Space or Enter |
 
 ## Project layout
 
 | Path | Syncs to | What it does |
 |---|---|---|
-| `src/shared/Config.luau` | ReplicatedStorage.Shared | Every tuning number: timings, movement, knockback, the ability, sounds. |
-| `src/shared/Brainrots.luau` | | The brainrots: name, class, color, hit word, and the parts their look is built from. Class stats live here too. |
-| `src/server/Round.luau` | ServerScriptService.Server | Lobby (pads, green circle, countdown) and the Last Brainrot Standing round. |
-| `src/server/Balls.luau` | | Spawning balls, network ownership, dressing them as brainrots, basic speed validation. |
-| `src/server/Combat.luau` | | Ball-on-ball knockback, bumpers, boosts and the Slam ability. |
-| `src/server/Looks.luau` | | Builds a brainrot's look from its parts. |
-| `src/server/World/` | | `Builder` helpers, the `Lobby`, and the crumbling `Arena`. |
-| `src/client/BallController.luau` | StarterPlayerScripts.Client | Rolls your ball: steering, momentum, jump, boost, brake, slam dive, and applying knockback. |
-| `src/client/Camera.luau` | | Fixed-angle follow camera with speed FOV and shake. |
-| `src/client/Visuals.luau` | | Moves every ball's look to follow it, and plays hit, slam and knockout effects. |
-| `src/client/Input.luau`, `Sounds.luau` | | Input for every device, and sound playback. |
-| `src/client/UI/` | | The HUD: timer, balls left, boost meter, slam charge, 3-2-1-GO, announcements, winner. |
+| `src/shared/Config.luau` | ReplicatedStorage.Shared | Match timings, sudden death, damage formula, rarity odds and colors, sounds. |
+| `src/shared/Brainrots.luau` | | The ball roster: stats, rarity, ability, and the parts each look is built from. |
+| `src/shared/Looks.luau`, `AimMath.luau`, `Remotes.luau` | | Building looks, aim clamping and bounce tracing, and the RemoteEvents (created by the server). |
+| `src/server/MatchService.luau` | ServerScriptService.Server | Lobby pads, matchmaking, bots, and the Draft → Aim → Battle → Resolve loop with hearts. |
+| `src/server/Battle.luau` | | One round's fight: server-owned physics, constant-speed bouncing, damage, ability hooks, sudden death. |
+| `src/server/Skills/` | | One module per ability, using the hooks `onStart`, `onTick`, `onWallHit`, `onEnemyHit` and `onLowHealth`. |
+| `src/server/World/` | | The lobby, the box arena (one per match, side by side) and `Builder` helpers. |
+| `src/client/Camera.luau` | StarterPlayerScripts.Client | Frames your arena, following the midpoint of the two balls. |
+| `src/client/AimController.luau` | | Aiming on every device, and the bouncing aim line. |
+| `src/client/Visuals.luau` | | Moves each ball's look to follow it, and shows hits, damage numbers, explosions and knockouts. |
+| `src/client/UI/` | | The draft cards and the match HUD (hearts, timer, round result, winner, sudden-death tint). |
 
-`default.project.json` also creates `ReplicatedStorage.Remotes` (Boost, Ability, Knockback, Effect, Announce) and `ReplicatedStorage.MatchState`, whose attributes tell clients what's going on: `Phase` (`Lobby`, `Countdown`, `Playing`, `Winner`), `EndsAt`, `Alive` and `Winners`. Each player has `Brainrot` and `AbilityReadyAt` attributes.
+Clients follow a match through attributes. On each player: `MatchId`, `Side`, `DraftOptions` and `DraftPick`. On the arena's `State`: `Phase`, `EndsAt`, `Round`, `SuddenDeath`, `LeftName`/`RightName`, `LeftHearts`/`RightHearts`, `RoundWinner` and `MatchWinner`.
 
-## How the physics works
+## Adding a ball
 
-Each player's ball is an invisible sphere (`Core`) that their own client simulates, so it responds instantly. The client pushes it with a `VectorForce` toward where the player is steering. The brainrot look is a separate set of non-solid parts that every client moves each frame to follow the sphere, facing the way it rolls.
+1. Add an entry to `src/shared/Brainrots.luau`: stats, rarity, ability name, icon, a one- or two-word hint, color, hit word and look. The look is a list of parts around the ball's center, facing -Z.
+2. If it needs a new ability, add `src/server/Skills/<Name>.luau` with whichever hooks it needs. The existing ones are short examples.
 
-Collisions are decided on the server: when two balls touch while moving toward each other, it works out each one's knockback and tells each client to apply it to its own ball. Bumpers and slams work the same way. Roblox physics also bounces the balls off each other on its own; the server's knockback is what makes hits big.
-
-## Adding a brainrot
-
-Add an entry to `src/shared/Brainrots.luau` with an id, name, emoji, class, color, hit word and look. The look is a list of parts around the ball's center, facing -Z. The lobby makes a pad and statue for every brainrot automatically; widen the row in `src/server/World/Lobby.luau` past 4 or 5.
+The lobby adds a statue for every ball automatically.

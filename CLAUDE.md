@@ -10,4 +10,4 @@ People play Roblox for fun, not to read instructions. On-screen UI and written e
 
 ## Every device
 
-Everything must work on keyboard and mouse, gamepad, and touch (phones and tablets). Movement and actions go through `src/client/Input.luau`, which also draws the touch buttons. Don't depend on Roblox's default PlayerModule controls.
+Everything must work on keyboard and mouse, gamepad, and touch (phones and tablets). In the lobby, players use Roblox's normal avatar controls. In a match, every input (picking a card, aiming, locking in) needs a mouse, touch, gamepad and keyboard path; see `src/client/AimController.luau` and `src/client/UI/Draft.luau`.

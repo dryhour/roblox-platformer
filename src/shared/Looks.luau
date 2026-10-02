@@ -1,11 +1,9 @@
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-
-local Brainrots = require(ReplicatedStorage.Shared.Brainrots)
+local Brainrots = require(script.Parent.Brainrots)
 
 -- Builds a brainrot's look from its part list (see Brainrots). Look parts are anchored and not
 -- solid; each stores where it sits relative to the look's center in an Offset attribute.
--- For balls, clients move the parts every frame to follow the physics sphere (see the client's
--- Visuals module); lobby statues are placed once with Looks.place.
+-- In a battle, clients move them every frame to follow the ball; statues and draft cards place
+-- them once with Looks.place. Used by both the server and clients.
 local Looks = {}
 
 local function makePart(spec: Brainrots.PartSpec, scale: number): BasePart
@@ -38,18 +36,18 @@ local function makePart(spec: Brainrots.PartSpec, scale: number): BasePart
 	return part
 end
 
--- A folder named "Look" with the brainrot's parts. The first one is named "Body".
-function Looks.build(id: string, scale: number?): Folder
+-- A Model named "Look" with the brainrot's parts. The first one is named "Body".
+function Looks.build(id: string, scale: number?): Model
 	local brainrot = Brainrots.get(id)
-	local folder = Instance.new("Folder")
-	folder.Name = "Look"
-	folder:SetAttribute("Brainrot", brainrot.id)
+	local model = Instance.new("Model")
+	model.Name = "Look"
+	model:SetAttribute("Brainrot", brainrot.id)
 	for index, spec in brainrot.look do
 		local part = makePart(spec, scale or 1)
 		part.Name = if index == 1 then "Body" else "Part"
-		part.Parent = folder
+		part.Parent = model
 	end
-	return folder
+	return model
 end
 
 -- Puts every part of a look in place around `center`.

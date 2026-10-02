@@ -1,5 +1,3 @@
-local CollectionService = game:GetService("CollectionService")
-
 -- Helpers for building the lobby and arenas in code.
 local Builder = {}
 Builder.__index = Builder
@@ -15,7 +13,7 @@ function Builder.new(name: string): Builder
 end
 
 -- A solid, anchored box centered at `position`.
-function Builder.block(self: Builder, size: Vector3, position: Vector3, color: Color3, name: string?): Part
+function Builder.block(self: Builder, size: Vector3, position: Vector3, color: Color3, name: string?, parent: Instance?): Part
 	local part = Instance.new("Part")
 	part.Name = name or "Block"
 	part.Anchored = true
@@ -25,7 +23,7 @@ function Builder.block(self: Builder, size: Vector3, position: Vector3, color: C
 	part.Material = Enum.Material.SmoothPlastic
 	part.TopSurface = Enum.SurfaceType.Smooth
 	part.BottomSurface = Enum.SurfaceType.Smooth
-	part.Parent = self.model
+	part.Parent = parent or self.model
 	return part
 end
 
@@ -37,7 +35,7 @@ function Builder.cylinder(self: Builder, height: number, diameter: number, posit
 	return part
 end
 
--- Not solid, and invisible to raycasts and touches: for glows, zones and sign holders.
+-- Not solid, and invisible to raycasts and touches: for glows and sign holders.
 function Builder.ghost(_self: Builder, part: BasePart, transparency: number): BasePart
 	part.Transparency = transparency
 	part.CanCollide = false
@@ -45,17 +43,6 @@ function Builder.ghost(_self: Builder, part: BasePart, transparency: number): Ba
 	part.CanTouch = false
 	part.CastShadow = false
 	return part
-end
-
--- A pinball bumper standing on the ground at `position`. Combat bounces balls off anything
--- tagged "Bumper" with Radius and Height attributes.
-function Builder.bumper(self: Builder, position: Vector3, diameter: number, height: number): Part
-	local bumper = self:cylinder(height, diameter, position + Vector3.new(0, height / 2, 0), Color3.fromRGB(255, 70, 200), "Bumper")
-	bumper.Material = Enum.Material.Neon
-	bumper:SetAttribute("Radius", diameter / 2)
-	bumper:SetAttribute("Height", height)
-	CollectionService:AddTag(bumper, "Bumper")
-	return bumper
 end
 
 -- A label floating at `position`, sized in studs so it scales with the world. Prefer icons and
@@ -83,8 +70,8 @@ function Builder.sign(self: Builder, position: Vector3, text: string, width: num
 	return label
 end
 
-function Builder.build(self: Builder): Model
-	self.model.Parent = workspace
+function Builder.build(self: Builder, parent: Instance?): Model
+	self.model.Parent = parent or workspace
 	return self.model
 end
 

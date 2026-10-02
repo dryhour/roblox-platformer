@@ -1,11 +1,9 @@
-local BallController = require(script.BallController)
+local AimController = require(script.AimController)
 local Camera = require(script.Camera)
-local Input = require(script.Input)
 local UI = require(script.UI)
 local Visuals = require(script.Visuals)
 
-Input.start()
-BallController.start()
 Camera.start()
 Visuals.start()
+AimController.start()
 UI.start()

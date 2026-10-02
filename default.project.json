@@ -5,27 +5,6 @@
     "ReplicatedStorage": {
       "Shared": {
         "$path": "src/shared"
-      },
-      "Remotes": {
-        "$className": "Folder",
-        "Boost": {
-          "$className": "RemoteEvent"
-        },
-        "Ability": {
-          "$className": "RemoteEvent"
-        },
-        "Knockback": {
-          "$className": "RemoteEvent"
-        },
-        "Effect": {
-          "$className": "RemoteEvent"
-        },
-        "Announce": {
-          "$className": "RemoteEvent"
-        }
-      },
-      "MatchState": {
-        "$className": "Configuration"
       }
     },
     "ServerScriptService": {
@@ -46,7 +25,7 @@
     "Workspace": {
       "$properties": {
         "FilteringEnabled": true,
-        "Gravity": 150
+        "Gravity": 196.2
       }
     },
     "Lighting": {
