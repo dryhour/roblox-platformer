@@ -5,7 +5,7 @@ local Cannon = {}
 local MAX_TURRETS = 3
 local FIRE_EVERY = 1.5
 local SHOT_DAMAGE = 65
-local SHOT_SPEED = 110
+local SHOT_SPEED = 45
 
 function Cannon.onStart(_battle, ball)
 	ball.state.turrets = {}
@@ -17,11 +17,12 @@ function Cannon.onWallHit(battle, ball, point: Vector3, normal: Vector3)
 	if #turrets >= MAX_TURRETS then
 		return
 	end
-	local position = point + normal * 1.5
+	local position = point + normal * 0.8
 	local turret = Instance.new("Part")
 	turret.Name = "Turret"
-	turret.Size = Vector3.new(3, 3, 3)
-	turret.CFrame = CFrame.lookAt(position, position + normal)
+	turret.Size = Vector3.new(1.6, 1.6, 1.6)
+	-- Walls can face up or down, so keep the turret upright relative to the arena's front.
+	turret.CFrame = CFrame.lookAt(position, position + normal, battle.arena.facing)
 	turret.Color = Color3.fromRGB(70, 75, 85)
 	turret.Material = Enum.Material.Metal
 	turret.Anchored = true
@@ -32,8 +33,8 @@ function Cannon.onWallHit(battle, ball, point: Vector3, normal: Vector3)
 	local light = Instance.new("Part")
 	light.Name = "Barrel"
 	light.Shape = Enum.PartType.Ball
-	light.Size = Vector3.one * 1.4
-	light.CFrame = turret.CFrame * CFrame.new(0, 0, -1.6)
+	light.Size = Vector3.one * 0.8
+	light.CFrame = turret.CFrame * CFrame.new(0, 0, -0.9)
 	light.Color = ball.def.color
 	light.Material = Enum.Material.Neon
 	light.Anchored = true
@@ -56,7 +57,7 @@ function Cannon.onTick(battle, ball, deltaTime: number)
 			local shot = Instance.new("Part")
 			shot.Name = "Shot"
 			shot.Shape = Enum.PartType.Ball
-			shot.Size = Vector3.one * 1.4
+			shot.Size = Vector3.one * 0.8
 			shot.Position = turret.position
 			shot.Color = Color3.fromRGB(255, 150, 40)
 			shot.Material = Enum.Material.Neon

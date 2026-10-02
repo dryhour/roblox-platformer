@@ -4,7 +4,9 @@ local Config = require(script.Parent.Config)
 -- rarity, an ability (a module in src/server/Skills) and a look.
 --
 -- Looks are built from parts around the ball's center: forward is -Z, up is +Y, right is +X.
--- The first part is the body. Balls face the way they roll.
+-- The first part is the body. Part sizes are for a ball DESIGN_SIZE studs across; Looks scales
+-- them to Config.BALL_SIZE in battle. In the arena, balls face the players and turn toward
+-- where they're going.
 
 export type PartSpec = {
 	shape: "Ball" | "Block" | "Cylinder" | "Wedge",
@@ -37,7 +39,7 @@ export type Brainrot = {
 	look: { PartSpec },
 }
 
-local SIZE = Config.BALL_SIZE
+local SIZE = 7 -- looks are drawn for a ball this big (Brainrots.DESIGN_SIZE)
 local WHITE = Color3.fromRGB(250, 250, 250)
 local BLACK = Color3.fromRGB(20, 20, 20)
 
@@ -84,7 +86,7 @@ local list: { Brainrot } = {
 		name = "Chimpanzini Bananini",
 		emoji = "🍌",
 		rarity = "Common",
-		stats = { health = 1400, mass = 15, speed = 50, impactPower = 1 },
+		stats = { health = 1400, mass = 15, speed = 21, impactPower = 1 },
 		skill = "Bananas",
 		skillIcon = "🍌",
 		skillHint = "Bananas",
@@ -110,7 +112,7 @@ local list: { Brainrot } = {
 		name = "Tung Tung Tung Sahur",
 		emoji = "🪵",
 		rarity = "Rare",
-		stats = { health = 1800, mass = 30, speed = 42, impactPower = 1 },
+		stats = { health = 1800, mass = 30, speed = 18, impactPower = 1 },
 		skill = "Charge",
 		skillIcon = "📈",
 		skillHint = "Grows",
@@ -135,7 +137,7 @@ local list: { Brainrot } = {
 		name = "Tralalero Tralala",
 		emoji = "🦈",
 		rarity = "Epic",
-		stats = { health = 1100, mass = 10, speed = 60, impactPower = 1.25 },
+		stats = { health = 1100, mass = 10, speed = 25, impactPower = 1.25 },
 		skill = "Vampire",
 		skillIcon = "🧛",
 		skillHint = "Steals HP",
@@ -162,7 +164,7 @@ local list: { Brainrot } = {
 		name = "Brr Brr Patapim",
 		emoji = "🌳",
 		rarity = "Epic",
-		stats = { health = 1300, mass = 16, speed = 50, impactPower = 0.95 },
+		stats = { health = 1300, mass = 16, speed = 21, impactPower = 0.95 },
 		skill = "Vines",
 		skillIcon = "🌿",
 		skillHint = "Vines",
@@ -190,7 +192,7 @@ local list: { Brainrot } = {
 		name = "Bombardiro Crocodilo",
 		emoji = "🐊",
 		rarity = "Legendary",
-		stats = { health = 1300, mass = 18, speed = 48, impactPower = 0.9 },
+		stats = { health = 1300, mass = 18, speed = 20, impactPower = 0.9 },
 		skill = "Cannon",
 		skillIcon = "💣",
 		skillHint = "Turrets",
@@ -223,7 +225,7 @@ local list: { Brainrot } = {
 		name = "Cappuccino Assassino",
 		emoji = "☕",
 		rarity = "Mythic",
-		stats = { health = 1000, mass = 12, speed = 58, impactPower = 1.15 },
+		stats = { health = 1000, mass = 12, speed = 24, impactPower = 1.15 },
 		skill = "BlackHole",
 		skillIcon = "🌀",
 		skillHint = "Black hole",
@@ -255,6 +257,7 @@ end
 local Brainrots = {
 	list = list,
 	byId = byId,
+	DESIGN_SIZE = SIZE,
 }
 
 -- The brainrot with this id, or the first one if the id is unknown. Takes attribute values as

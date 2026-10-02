@@ -6,40 +6,24 @@ local UserInputService = game:GetService("UserInputService")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Brainrots = require(Shared:WaitForChild("Brainrots"))
 local Config = require(Shared:WaitForChild("Config"))
-local Looks = require(Shared:WaitForChild("Looks"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local MyMatch = require(script.Parent.Parent.MyMatch)
+local BallIcon = require(script.Parent.BallIcon)
 local Widgets = require(script.Parent.Widgets)
 
--- The draft: three cards, each showing a ball spinning, its rarity (colored border and stars),
--- its health, speed and power, and its ability's icon. Tap one to pick it.
+-- The draft: the screen dims, a big countdown shows at the top, and three cards appear, each
+-- with a ball's name, the ball spinning, its rarity (colored border and stars), its health and
+-- speed, and its ability's icon. Tap one to pick it.
 local Draft = {}
 
-local CARD_WIDTH = 180
-local CARD_HEIGHT = 250
-local SPIN_SPEED = 1 -- radians per second, for the ball previews
+local CARD_WIDTH = 190
+local CARD_HEIGHT = 280
+local GAP = 24
+local CARD = Color3.fromRGB(14, 18, 38)
+local PREVIEW = Color3.fromRGB(46, 54, 84)
+local DIM = Color3.fromRGB(6, 8, 20)
 
-type Card = { button: TextButton, stroke: UIStroke, scale: UIScale, viewport: ViewportFrame, look: Model, id: string }
-
-local function preview(parent: GuiObject, id: string): (ViewportFrame, Model)
-	local viewport = Instance.new("ViewportFrame")
-	viewport.Size = UDim2.new(1, 0, 0, 120)
-	viewport.BackgroundTransparency = 1
-	viewport.LightDirection = Vector3.new(-1, -1, -1)
-	viewport.Ambient = Color3.fromRGB(170, 170, 180)
-	viewport.Parent = parent
-
-	local look = Looks.build(id)
-	Looks.place(look, CFrame.new())
-	look.Parent = viewport
-	local camera = Instance.new("Camera")
-	camera.FieldOfView = 40
-	-- Looks face -Z, so the camera sits in front at -Z.
-	camera.CFrame = CFrame.lookAt(Vector3.new(0, 3, -19), Vector3.zero)
-	camera.Parent = viewport
-	viewport.CurrentCamera = camera
-	return viewport, look
-end
+type Card = { button: TextButton, stroke: UIStroke, scale: UIScale, icon: BallIcon.BallIcon, id: string }
 
 local function makeCard(parent: GuiObject, order: number, id: string): Card
 	local brainrot = Brainrots.get(id)
@@ -48,66 +32,91 @@ local function makeCard(parent: GuiObject, order: number, id: string): Card
 	local button = Widgets.create("TextButton", {
 		LayoutOrder = order,
 		Size = UDim2.fromOffset(CARD_WIDTH, CARD_HEIGHT),
-		BackgroundColor3 = Widgets.PANEL,
-		BackgroundTransparency = 0.05,
+		BackgroundColor3 = CARD,
 		AutoButtonColor = false,
 		Text = "",
 		Parent = parent,
-	}, { Widgets.corner(14) })
+	}, { Widgets.corner(10) })
 	local stroke = Widgets.create("UIStroke", {
 		ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
 		Color = rarity.color,
-		Thickness = 4,
+		Thickness = 3,
 		Parent = button,
 	})
 	local scale = Widgets.create("UIScale", { Parent = button })
 
-	local content = Widgets.stack({ Size = UDim2.fromScale(1, 1), AutomaticSize = Enum.AutomaticSize.None, Parent = button }, 2)
-	Widgets.create("UIPadding", { PaddingTop = UDim.new(0, 8), PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 8), Parent = content })
+	local content = Widgets.stack({ Size = UDim2.fromScale(1, 1), AutomaticSize = Enum.AutomaticSize.None, Parent = button }, 6)
+	local layout = content:FindFirstChildOfClass("UIListLayout") :: UIListLayout
+	layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+	Widgets.create("UIPadding", { PaddingTop = UDim.new(0, 12), PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 8), Parent = content })
 
-	local viewport, look = preview(content, id)
-	viewport.LayoutOrder = 1
-	local function line(order2: number, text: string, size: number, color: Color3?)
+	local function line(lineOrder: number, text: string, size: number, color: Color3?)
 		Widgets.label(text, size, {
-			LayoutOrder = order2,
+			LayoutOrder = lineOrder,
 			TextXAlignment = Enum.TextXAlignment.Center,
 			TextColor3 = color or Widgets.TEXT,
 			Parent = content,
 		})
 	end
-	line(2, string.rep("★", rarity.stars), 18, rarity.color)
-	line(3, brainrot.name, 15)
+	line(1, brainrot.name, 16)
+	local preview = Widgets.create("Frame", {
+		LayoutOrder = 2,
+		Size = UDim2.fromOffset(120, 120),
+		BackgroundColor3 = PREVIEW,
+		Parent = content,
+	}, { Widgets.corner(6) })
+	local icon = BallIcon.new({ Size = UDim2.fromScale(1, 1), Parent = preview })
+	icon.set(id)
+	line(3, string.rep("★", rarity.stars), 18, rarity.color)
 	line(4, `❤️ {brainrot.stats.health}   ⚡ {brainrot.stats.speed}`, 15, Widgets.MUTED)
 	line(5, `{brainrot.skillIcon} {brainrot.skillHint}`, 18, Widgets.ACCENT)
 
 	button.Activated:Connect(function()
 		Remotes.Draft:FireServer(id)
 	end)
-	return { button = button, stroke = stroke, scale = scale, viewport = viewport, look = look, id = id }
+	return { button = button, stroke = stroke, scale = scale, icon = icon, id = id }
 end
 
 function Draft.new(gui: ScreenGui)
 	local player = Players.LocalPlayer
 
-	local root = Widgets.stack({
+	-- Reaches up under Roblox's top bar so the whole screen dims.
+	local root = Widgets.create("Frame", {
 		Name = "Draft",
-		AnchorPoint = Vector2.new(0.5, 1),
-		Position = UDim2.new(0.5, 0, 1, -16),
-		Size = UDim2.fromOffset(CARD_WIDTH * 3 + 40, 0),
+		Position = UDim2.fromOffset(0, -100),
+		Size = UDim2.new(1, 0, 1, 100),
+		BackgroundColor3 = DIM,
+		BackgroundTransparency = 0.35,
+		BorderSizePixel = 0,
 		Parent = gui,
-	}, 10)
-	local row = Widgets.stack({
+	})
+	local content = Widgets.stack({
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.new(0.5, 0, 0.5, 50),
+		Size = UDim2.fromOffset(CARD_WIDTH * 3 + GAP * 2, 0),
+		Parent = root,
+	}, 16)
+	Widgets.fit(content)
+
+	local countdown = Widgets.label("", 56, {
 		LayoutOrder = 1,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		TextStrokeTransparency = 0,
+		Parent = content,
+	})
+	countdown.FontFace = Widgets.TITLE_FONT
+	local row = Widgets.stack({
+		LayoutOrder = 2,
 		AutomaticSize = Enum.AutomaticSize.None,
 		Size = UDim2.new(1, 0, 0, CARD_HEIGHT),
-		Parent = root,
-	}, 20, Enum.FillDirection.Horizontal)
+		Parent = content,
+	}, GAP, Enum.FillDirection.Horizontal)
 	local track = Widgets.create("Frame", {
-		LayoutOrder = 2,
+		LayoutOrder = 3,
 		Size = UDim2.new(1, 0, 0, 10),
 		BackgroundColor3 = Widgets.BUTTON,
 		BorderSizePixel = 0,
-		Parent = root,
+		Parent = content,
 	}, { Widgets.corner(5) })
 	local bar = Widgets.create("Frame", {
 		Size = UDim2.fromScale(1, 1),
@@ -147,9 +156,9 @@ function Draft.new(gui: ScreenGui)
 		for _, card in cards do
 			local chosen = card.id == pick
 			card.scale.Scale = if chosen then 1.08 else 1
-			card.stroke.Thickness = if chosen then 7 else 4
-			card.button.BackgroundTransparency = if picked and not chosen then 0.6 else 0.05
-			card.viewport.ImageTransparency = if picked and not chosen then 0.6 else 0
+			card.stroke.Thickness = if chosen then 7 else 3
+			card.button.BackgroundTransparency = if picked and not chosen then 0.6 else 0
+			card.icon.frame.ImageTransparency = if picked and not chosen then 0.6 else 0
 		end
 	end
 
@@ -157,10 +166,12 @@ function Draft.new(gui: ScreenGui)
 		if not root.Visible then
 			return
 		end
-		bar.Size = UDim2.fromScale(math.clamp(MyMatch.timeLeft() / Config.DRAFT_TIME, 0, 1), 1)
-		local spin = CFrame.Angles(0, os.clock() * SPIN_SPEED, 0)
+		local left = MyMatch.timeLeft()
+		countdown.Text = tostring(math.max(0, math.ceil(left)))
+		countdown.TextColor3 = if left <= 3 then Widgets.BAD else Widgets.TEXT
+		bar.Size = UDim2.fromScale(math.clamp(left / Config.DRAFT_TIME, 0, 1), 1)
 		for _, card in cards do
-			Looks.place(card.look, spin)
+			card.icon.spin()
 		end
 	end
 

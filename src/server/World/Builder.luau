@@ -27,6 +27,13 @@ function Builder.block(self: Builder, size: Vector3, position: Vector3, color: C
 	return part
 end
 
+-- A solid, anchored box placed at `cframe`, for things that are turned.
+function Builder.box(self: Builder, size: Vector3, cframe: CFrame, color: Color3, name: string?, parent: Instance?): Part
+	local part = self:block(size, cframe.Position, color, name, parent)
+	part.CFrame = cframe
+	return part
+end
+
 -- An upright cylinder centered at `position`.
 function Builder.cylinder(self: Builder, height: number, diameter: number, position: Vector3, color: Color3, name: string?): Part
 	local part = self:block(Vector3.new(height, diameter, diameter), position, color, name)

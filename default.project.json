@@ -31,11 +31,17 @@
     "Lighting": {
       "$properties": {
         "Ambient": [
-          0.35,
-          0.33,
-          0.45
+          0.42,
+          0.46,
+          0.56
         ],
-        "Brightness": 2,
+        "OutdoorAmbient": [
+          0.55,
+          0.6,
+          0.7
+        ],
+        "Brightness": 2.5,
+        "ClockTime": 13.5,
         "GlobalShadows": true,
         "Outlines": false
       }

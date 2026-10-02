@@ -3,8 +3,10 @@ local RunService = game:GetService("RunService")
 
 local Draft = require(script.Draft)
 local Hud = require(script.Hud)
+local Widgets = require(script.Widgets)
 
--- The on-screen UI, shown only in matches. There's very little of it on purpose (see CLAUDE.md).
+-- The on-screen UI, shown only in matches and while waiting at a station. There's very little of
+-- it on purpose (see CLAUDE.md).
 local UI = {}
 
 -- Screens shorter than this (in pixels) shrink the UI to fit, e.g. phones in landscape.
@@ -21,10 +23,8 @@ function UI.start()
 	gui.Parent = player:WaitForChild("PlayerGui")
 
 	local camera = workspace.CurrentCamera
-	local scale = Instance.new("UIScale")
-	scale.Parent = gui
 	local function fit()
-		scale.Scale = math.min(1, camera.ViewportSize.Y / DESIGN_HEIGHT)
+		Widgets.setFitScale(math.min(1, camera.ViewportSize.Y / DESIGN_HEIGHT))
 	end
 	camera:GetPropertyChangedSignal("ViewportSize"):Connect(fit)
 	fit()

@@ -10,12 +10,11 @@ local SLOW = 0.4
 local SLOW_TIME = 1.2
 local DAMAGE_EVERY = 0.5 -- vine damage is added up and dealt in chunks
 
-local function flatDistanceToSegment(point: Vector3, a: Vector3, b: Vector3): number
-	local p = Vector2.new(point.X, point.Z)
-	local start = Vector2.new(a.X, a.Z)
-	local segment = Vector2.new(b.X, b.Z) - start
-	local t = math.clamp((p - start):Dot(segment) / math.max(segment:Dot(segment), 0.001), 0, 1)
-	return (start + segment * t - p).Magnitude
+-- Balls and vines all sit in the arena's plane, so plain 3D distance works.
+local function distanceToSegment(point: Vector3, a: Vector3, b: Vector3): number
+	local segment = b - a
+	local t = math.clamp((point - a):Dot(segment) / math.max(segment:Dot(segment), 0.001), 0, 1)
+	return (a + segment * t - point).Magnitude
 end
 
 function Vines.onStart(_battle, ball)
@@ -29,13 +28,13 @@ function Vines.onWallHit(battle, ball, point: Vector3)
 	local state = ball.state
 	local last = state.lastPoint
 	state.lastPoint = point
-	if not last or (point - last).Magnitude < 4 then
+	if not last or (point - last).Magnitude < 2 then
 		return
 	end
 
 	local vine = Instance.new("Part")
 	vine.Name = "Vine"
-	vine.Size = Vector3.new(0.6, 0.6, (point - last).Magnitude)
+	vine.Size = Vector3.new(0.35, 0.35, (point - last).Magnitude)
 	vine.CFrame = CFrame.lookAt((point + last) / 2, point)
 	vine.Color = Color3.fromRGB(80, 220, 90)
 	vine.Material = Enum.Material.Neon
@@ -66,7 +65,7 @@ function Vines.onTick(battle, ball, deltaTime: number)
 
 	for _, enemy in battle:enemiesOf(ball) do
 		for _, vine in state.vines do
-			if flatDistanceToSegment(enemy.core.Position, vine.from, vine.to) < battle:radius(enemy) then
+			if distanceToSegment(enemy.core.Position, vine.from, vine.to) < battle:radius(enemy) then
 				battle:addSpeedBuff(enemy, "Vines", SLOW, SLOW_TIME)
 				state.pending[enemy] = (state.pending[enemy] or 0) + DAMAGE_PER_SECOND * deltaTime
 				break

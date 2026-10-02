@@ -1,4 +1,5 @@
 local Brainrots = require(script.Parent.Brainrots)
+local Config = require(script.Parent.Config)
 
 -- Builds a brainrot's look from its part list (see Brainrots). Look parts are anchored and not
 -- solid; each stores where it sits relative to the look's center in an Offset attribute.
@@ -36,14 +37,15 @@ local function makePart(spec: Brainrots.PartSpec, scale: number): BasePart
 	return part
 end
 
--- A Model named "Look" with the brainrot's parts. The first one is named "Body".
+-- A Model named "Look" with the brainrot's parts. The first one is named "Body". `scale` is
+-- relative to Brainrots.DESIGN_SIZE; leave it out to fit a ball Config.BALL_SIZE across.
 function Looks.build(id: string, scale: number?): Model
 	local brainrot = Brainrots.get(id)
 	local model = Instance.new("Model")
 	model.Name = "Look"
 	model:SetAttribute("Brainrot", brainrot.id)
 	for index, spec in brainrot.look do
-		local part = makePart(spec, scale or 1)
+		local part = makePart(spec, scale or Config.BALL_SIZE / Brainrots.DESIGN_SIZE)
 		part.Name = if index == 1 then "Body" else "Part"
 		part.Parent = model
 	end

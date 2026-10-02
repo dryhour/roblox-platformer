@@ -24,6 +24,23 @@ function MyMatch.state(): Configuration?
 	return if state and state:IsA("Configuration") then state else nil
 end
 
+-- Where your arena is and which way its front faces (toward you), once you're in a match.
+function MyMatch.frame(): (Vector3?, Vector3?)
+	local arena = MyMatch.arena()
+	local center = arena and arena:GetAttribute("Center")
+	local facing = arena and arena:GetAttribute("Facing")
+	if typeof(center) == "Vector3" and typeof(facing) == "Vector3" then
+		return center, facing
+	end
+	return nil, nil
+end
+
+-- The side of the station square you're standing in while waiting for a match, or "".
+function MyMatch.waitingSide(): string
+	local side = player:GetAttribute("WaitingSide")
+	return if typeof(side) == "string" then side else ""
+end
+
 function MyMatch.side(): string
 	local side = player:GetAttribute("Side")
 	return if typeof(side) == "string" then side else ""

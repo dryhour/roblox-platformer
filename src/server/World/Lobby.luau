@@ -1,86 +1,136 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Brainrots = require(ReplicatedStorage.Shared.Brainrots)
-local Config = require(ReplicatedStorage.Shared.Config)
 local Looks = require(ReplicatedStorage.Shared.Looks)
 local Builder = require(script.Parent.Builder)
+local Station = require(script.Parent.Station)
 
--- The lobby, where players walk around as their normal avatars. No menus (see CLAUDE.md):
--- stand on the ⚔️ pad to queue for a 1v1, or on the 🤖 pad to play a bot. Statues of every
--- brainrot ball line the back. MatchService runs the pads.
+-- The lobby: a big floating platform over the ocean where players walk around as their normal
+-- avatars. No menus (see CLAUDE.md): glowing arrows lead from the spawn down the middle, duel
+-- stations line both sides, and statues of every brainrot ball stand at the far end. The two
+-- stations nearest the spawn have robots to play against.
 local Lobby = {}
 
 export type Lobby = {
-	duelPad: BasePart,
-	botPad: BasePart,
-	duelSign: TextLabel,
-	spawn: CFrame, -- where players come back to after a match
+	stations: { Station.Station },
 }
 
-local SIZE = 140
-local FLOOR = Color3.fromRGB(45, 35, 80)
-local EDGE = Color3.fromRGB(255, 70, 200)
-local DUEL = Color3.fromRGB(70, 160, 255)
-local BOT = Color3.fromRGB(175, 90, 255)
-local PEDESTAL = Color3.fromRGB(30, 25, 55)
-local STATUE_SCALE = 1.4
+local WIDTH = 180
+local FRONT_Z = 115 -- the spawn end
+local BACK_Z = -135
+local THICKNESS = 8
+local WALKWAY_WIDTH = 28
+local STATION_X = 72 -- each column's boxes are this far from the middle
+local STATION_ZS = { 70, 14, -42, -98 }
+local CHEVRON_EVERY = 9
+
+local FLOOR = Color3.fromRGB(58, 86, 150)
+local WALKWAY = Color3.fromRGB(78, 112, 186)
+local SIDE = Color3.fromRGB(32, 44, 84)
+local EDGE = Color3.fromRGB(110, 210, 255)
+local ARROW = Color3.fromRGB(235, 245, 255)
+local PEDESTAL = Color3.fromRGB(26, 36, 70)
+
+local function decorateWorld()
+	local terrain = workspace.Terrain
+	terrain:FillBlock(CFrame.new(0, -14, 0), Vector3.new(1200, 16, 1200), Enum.Material.Water)
+	terrain.WaterColor = Color3.fromRGB(40, 110, 200)
+	terrain.WaterReflectance = 0.6
+	terrain.WaterTransparency = 0.4
+	if not terrain:FindFirstChildOfClass("Clouds") then
+		local clouds = Instance.new("Clouds")
+		clouds.Cover = 0.55
+		clouds.Density = 0.6
+		clouds.Parent = terrain
+	end
+end
+
+-- A ">" made of two glowing strips on the floor, pointing along -Z.
+local function chevron(b: Builder.Builder, folder: Folder, tip: Vector3, order: number)
+	for _, sign in { -1, 1 } do
+		local back = tip + Vector3.new(sign * 3, 0, 3)
+		local arm = b:box(Vector3.new(0.9, 0.12, (back - tip).Magnitude + 0.9), CFrame.lookAt((tip + back) / 2, tip), ARROW, "Arrow", folder)
+		arm.Material = Enum.Material.Neon
+		arm.CanCollide = false
+		arm.CastShadow = false
+		arm:SetAttribute("Order", order)
+	end
+end
 
 function Lobby.build(): Lobby
-	local b = Builder.new("Lobby")
-	local half = SIZE / 2
+	decorateWorld()
 
-	b:block(Vector3.new(SIZE, 2, SIZE), Vector3.new(0, -1, 0), FLOOR, "Floor")
+	local b = Builder.new("Lobby")
+	local length = FRONT_Z - BACK_Z
+	local middleZ = (FRONT_Z + BACK_Z) / 2
+
+	b:block(Vector3.new(WIDTH, THICKNESS, length), Vector3.new(0, -THICKNESS / 2, middleZ), FLOOR, "Floor")
+	b:block(Vector3.new(WIDTH + 2, THICKNESS - 1, length + 2), Vector3.new(0, -THICKNESS / 2 - 1, middleZ), SIDE, "Base")
+	-- A glowing rim, and invisible walls so nobody falls in the sea.
 	for _, side in { Vector3.xAxis, -Vector3.xAxis, Vector3.zAxis, -Vector3.zAxis } do
-		local length = Vector3.new(math.abs(side.Z), 0, math.abs(side.X)) * SIZE
-		local strip = b:block(length + side:Abs() * 1.5 + Vector3.new(0, 0.6, 0), side * half + Vector3.new(0, 0.3, 0), EDGE, "Edge")
-		strip.Material = Enum.Material.Neon
-		local wall = b:block(length + side:Abs() * 4 + Vector3.new(0, 30, 0), side * (half + 2) + Vector3.new(0, 15, 0), EDGE, "Wall")
+		local span = if side.X ~= 0 then length else WIDTH
+		local reach = if side.X ~= 0 then WIDTH / 2 else length / 2
+		local along = Vector3.new(math.abs(side.Z), 0, math.abs(side.X)) * span
+		local middle = Vector3.new(0, 0, middleZ) + side * reach
+		local rim = b:block(along + side:Abs() * 1.2 + Vector3.new(0, 0.5, 0), middle + Vector3.new(0, 0.25, 0), EDGE, "Rim")
+		rim.Material = Enum.Material.Neon
+		local wall = b:block(along + side:Abs() * 4 + Vector3.new(0, 40, 0), middle + side * 2 + Vector3.new(0, 20, 0), EDGE, "Wall")
 		b:ghost(wall, 1)
 		wall.CanCollide = true
 	end
+
+	b:block(Vector3.new(WALKWAY_WIDTH, 0.2, length - 20), Vector3.new(0, 0.1, middleZ - 5), WALKWAY, "Walkway")
 
 	local spawnLocation = Instance.new("SpawnLocation")
 	spawnLocation.Anchored = true
 	spawnLocation.Neutral = true
 	spawnLocation.Duration = 0
-	spawnLocation.Size = Vector3.new(10, 1, 10)
-	spawnLocation.Position = Vector3.new(0, 0.5, 30)
-	spawnLocation.Color = Color3.fromRGB(70, 60, 120)
+	spawnLocation.Size = Vector3.new(12, 1, 12)
+	spawnLocation.Position = Vector3.new(0, 0.5, FRONT_Z - 18)
+	spawnLocation.Color = WALKWAY
 	spawnLocation.Material = Enum.Material.SmoothPlastic
+	spawnLocation.TopSurface = Enum.SurfaceType.Smooth
 	spawnLocation.Parent = b.model
 
-	b:sign(Vector3.new(0, 30, -half + 8), "BRAINROT VS BRAINROT", 110, 15).TextColor3 = Color3.fromRGB(255, 220, 60)
-
-	local duelPad = b:cylinder(1, 18, Vector3.new(-22, 0.5, -10), DUEL, "DuelPad")
-	duelPad.Material = Enum.Material.Neon
-	local duelSign = b:sign(Vector3.new(-22, 10, -10), "⚔️ 0/2", 14, 6)
-	local botPad = b:cylinder(1, 18, Vector3.new(22, 0.5, -10), BOT, "BotPad")
-	botPad.Material = Enum.Material.Neon
-	b:sign(Vector3.new(22, 10, -10), "🤖", 8, 6)
-
-	-- A statue of every brainrot ball along the back.
-	local count = #Brainrots.list
-	for index, brainrot in Brainrots.list do
-		local x = (index - (count + 1) / 2) * 18
-		local pedestalTop = 3
-		b:block(Vector3.new(8, pedestalTop, 8), Vector3.new(x, pedestalTop / 2, -45), PEDESTAL, "Pedestal")
-		local statue = Looks.build(brainrot.id, STATUE_SCALE)
-		statue.Name = "Statue"
-		local center = Vector3.new(x, pedestalTop + Config.BALL_SIZE / 2 * STATUE_SCALE, -45)
-		-- Facing the spawn, toward +Z.
-		Looks.place(statue, CFrame.new(center) * CFrame.Angles(0, math.pi, 0))
-		statue.Parent = b.model
-		local sign = b:sign(center + Vector3.new(0, 8, 0), brainrot.emoji, 4, 4)
-		sign.TextStrokeTransparency = 1
+	local chevrons = Instance.new("Folder")
+	chevrons.Name = "Chevrons"
+	chevrons.Parent = b.model
+	local order = 0
+	for z = FRONT_Z - 30, BACK_Z + 30, -CHEVRON_EVERY do
+		order += 1
+		chevron(b, chevrons, Vector3.new(0, 0.26, z), order)
 	end
 
+	local stations = {}
+	for row, z in STATION_ZS do
+		for _, sign in { -1, 1 } do
+			-- Each station faces the walkway.
+			local origin = Vector3.new(sign * STATION_X, 0, z)
+			local into = Vector3.new(sign, 0, 0)
+			local id = `Arena{#stations + 1}`
+			table.insert(stations, Station.build(b, id, CFrame.lookAt(origin, origin + into), row == 1))
+		end
+	end
+
+	-- A statue of every brainrot ball at the far end, facing the spawn.
+	local count = #Brainrots.list
+	local statueZ = BACK_Z + 14
+	for index, brainrot in Brainrots.list do
+		local x = (index - (count + 1) / 2) * 12
+		local pedestalTop = 3
+		b:block(Vector3.new(7, pedestalTop, 7), Vector3.new(x, pedestalTop / 2, statueZ), PEDESTAL, "Pedestal")
+		local statue = Looks.build(brainrot.id, 1)
+		statue.Name = "Statue"
+		local center = Vector3.new(x, pedestalTop + Brainrots.DESIGN_SIZE / 2, statueZ)
+		Looks.place(statue, CFrame.new(center) * CFrame.Angles(0, math.pi, 0))
+		statue.Parent = b.model
+		local sign = b:sign(center + Vector3.new(0, 7, 0), brainrot.emoji, 4, 4)
+		sign.TextStrokeTransparency = 1
+	end
+	b:sign(Vector3.new(0, 26, BACK_Z + 6), "BRAINROT VS BRAINROT", 100, 13).TextColor3 = Color3.fromRGB(255, 220, 60)
+
 	b:build()
-	return {
-		duelPad = duelPad,
-		botPad = botPad,
-		duelSign = duelSign,
-		spawn = CFrame.new(spawnLocation.Position + Vector3.new(0, 4, 0)),
-	}
+	return { stations = stations }
 end
 
 return Lobby

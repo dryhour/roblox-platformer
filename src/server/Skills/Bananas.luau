@@ -1,4 +1,4 @@
--- Chimpanzini Bananini (the doc's Apple Ball): drops a banana every 3 seconds. Rolling over your
+-- Chimpanzini Bananini (the doc's Apple Ball): leaves a banana floating behind it every 3 seconds. Rolling over your
 -- own banana heals 15%; when the other ball touches one, it explodes.
 local Bananas = {}
 
@@ -8,14 +8,14 @@ local LIFETIME = 10
 local ARM_TIME = 1 -- so you don't pick up a banana the moment you drop it
 local HEAL = 0.15
 local BLAST_DAMAGE = 120
-local BLAST_RADIUS = 10
-local REACH = 1.5 -- how close a ball's surface has to get
+local BLAST_RADIUS = 5
+local REACH = 0.8 -- how close a ball's surface has to get
 
 local function makeBanana(position: Vector3): Part
 	local banana = Instance.new("Part")
 	banana.Name = "Banana"
 	banana.Shape = Enum.PartType.Ball
-	banana.Size = Vector3.one * 2.2
+	banana.Size = Vector3.one * 1.2
 	banana.Position = position
 	banana.Color = Color3.fromRGB(255, 220, 60)
 	banana.Material = Enum.Material.Neon
@@ -25,8 +25,8 @@ local function makeBanana(position: Vector3): Part
 	banana.CanTouch = false
 
 	local sign = Instance.new("BillboardGui")
-	sign.Size = UDim2.fromScale(4, 4)
-	sign.StudsOffset = Vector3.new(0, 2.5, 0)
+	sign.Size = UDim2.fromScale(2.4, 2.4)
+	sign.StudsOffset = Vector3.new(0, 1.4, 0)
 	sign.LightInfluence = 0
 	local label = Instance.new("TextLabel")
 	label.Size = UDim2.fromScale(1, 1)

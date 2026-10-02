@@ -5,25 +5,28 @@ local Brainrots = require(ReplicatedStorage.Shared.Brainrots)
 local Config = require(ReplicatedStorage.Shared.Config)
 local Remotes = require(ReplicatedStorage.Shared.Remotes)
 local Battle = require(script.Parent.Battle)
-local Arena = require(script.Parent.World.Arena)
 local Lobby = require(script.Parent.World.Lobby)
+local Station = require(script.Parent.World.Station)
 
--- Matchmaking and the match loop. Players stand on a lobby pad to queue: two on the ⚔️ pad
--- start a 1v1; one on the 🤖 pad starts a match against a bot. Each match gets its own arena
--- and runs rounds until one side runs out of hearts:
+-- Matchmaking and the match loop. Players walk into a station's squares to queue: when both
+-- squares stay filled for Config.SETTLE_TIME (a bot station's robot fills one), the match starts
+-- right there. Both players float beside the station's box on hover pads, with their hearts over
+-- their heads, and play rounds until one side runs out of hearts:
 --   Draft    each side picks one of 3 random balls
 --   Aim      each side aims its launch
 --   Battle   the balls fight on their own
 --   Resolve  the loser loses a heart
 --
--- Clients follow along through attributes. On each player: MatchId, Side ("Left" or "Right"),
--- DraftOptions (comma-separated ids) and DraftPick. On the arena's State: Phase, EndsAt
--- (server time), Round, SuddenDeath, LeftName, RightName, LeftHearts, RightHearts,
--- RoundWinner ("Left", "Right" or "Draw") and MatchWinner (a name).
+-- Clients follow along through attributes. On each player: WaitingAt (an arena's name) and
+-- WaitingSide while standing in a square; MatchId (the arena's name), Side ("Left" or "Right"),
+-- DraftOptions (comma-separated ids) and DraftPick during a match. On the arena's State: Phase
+-- (empty between matches), EndsAt (server time), Round, SuddenDeath, and for each side
+-- LeftName/RightName, LeftUserId/RightUserId (0 for the bot), LeftHearts/RightHearts and
+-- LeftPick/RightPick; then RoundWinner ("Left", "Right" or "Draw") and MatchWinner (a name).
 local MatchService = {}
 
-local MAX_ARENAS = 12
-local BOT_PAD_DELAY = 1 -- seconds on the 🤖 pad before the match starts
+local SIDES = { "Left", "Right" }
+local CHECK_EVERY = 0.25
 
 type Competitor = {
 	side: string,
@@ -39,8 +42,7 @@ type Competitor = {
 
 type Match = {
 	id: string,
-	arena: Arena.Arena,
-	slot: number,
+	station: Station.Station,
 	competitors: { [string]: Competitor },
 	players: { Player },
 	phase: string,
@@ -50,8 +52,7 @@ type Match = {
 local rng = Random.new()
 local lobby: Lobby.Lobby
 local matchOf: { [Player]: Match } = {}
-local slotsInUse: { [number]: boolean } = {}
-local matchCount = 0
+local matchAt: { [Station.Station]: Match } = {}
 
 local function competitorOf(match: Match, player: Player): Competitor?
 	for _, competitor in match.competitors do
@@ -68,8 +69,9 @@ end
 
 local function setPhase(match: Match, phase: string, seconds: number?)
 	match.phase = phase
-	match.arena.state:SetAttribute("Phase", phase)
-	match.arena.state:SetAttribute("EndsAt", if seconds then workspace:GetServerTimeNow() + seconds else 0)
+	local state = match.station.arena.state
+	state:SetAttribute("Phase", phase)
+	state:SetAttribute("EndsAt", if seconds then workspace:GetServerTimeNow() + seconds else 0)
 end
 
 -- A side whose player has left the game, if any.
@@ -99,25 +101,81 @@ local function everyone(match: Match, check: (Competitor) -> boolean): boolean
 	return true
 end
 
--- Freezes the player's avatar in the lobby during a match (their camera is in the arena), or
--- sends it back to the lobby spawn afterward.
-local function holdAvatar(player: Player, hold: boolean)
-	local character = player.Character
-	local root = character and character:FindFirstChild("HumanoidRootPart")
-	if character and root and root:IsA("BasePart") then
-		root.Anchored = hold
-		if not hold then
-			character:PivotTo(lobby.spawn)
-		end
+-- Avatars
+
+-- The avatar standing in for a side: the player's character, or the station's robot.
+local function bodyOf(match: Match, competitor: Competitor): Model?
+	if competitor.player then
+		return competitor.player.Character
 	end
+	return match.station.bot
 end
 
+-- Puts a character's feet at `feet`. `pinned` holds it there, e.g. on a hover pad in a match.
+local function place(character: Model?, feet: CFrame, pinned: boolean)
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	if not character or not root or not root:IsA("BasePart") then
+		return
+	end
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	local height = 3
+	if humanoid and humanoid.RigType == Enum.HumanoidRigType.R15 then
+		height = humanoid.HipHeight + root.Size.Y / 2
+	end
+	root.Anchored = pinned
+	root.AssemblyLinearVelocity = Vector3.zero
+	character:PivotTo(feet + Vector3.new(0, height, 0))
+end
+
+-- Hearts floating over a character's head, so people watching from the lobby can see the score.
+local function showHearts(character: Model?, hearts: number?)
+	local head = character and (character:FindFirstChild("Head") or character:FindFirstChild("HumanoidRootPart"))
+	if not head then
+		return
+	end
+	local billboard = head:FindFirstChild("MatchHearts")
+	if not hearts then
+		if billboard then
+			billboard:Destroy()
+		end
+		return
+	end
+	if not billboard then
+		billboard = Instance.new("BillboardGui")
+		billboard.Name = "MatchHearts"
+		billboard.Size = UDim2.fromScale(4.5, 1.5)
+		billboard.StudsOffset = Vector3.new(0, 3.5, 0)
+		billboard.LightInfluence = 0
+		billboard.MaxDistance = 250
+		local label = Instance.new("TextLabel")
+		label.Name = "Label"
+		label.Size = UDim2.fromScale(1, 1)
+		label.BackgroundTransparency = 1
+		label.TextScaled = true
+		label.Parent = billboard
+		billboard.Parent = head
+	end
+	local count = math.clamp(hearts, 0, Config.HEARTS)
+	local label = billboard:FindFirstChild("Label") :: TextLabel
+	label.Text = string.rep("❤️", count) .. string.rep("🖤", Config.HEARTS - count)
+end
+
+local function setHearts(match: Match, competitor: Competitor, hearts: number)
+	competitor.hearts = hearts
+	match.station.arena.state:SetAttribute(`{competitor.side}Hearts`, hearts)
+	showHearts(bodyOf(match, competitor), hearts)
+end
+
+-- Rounds
+
 local function draft(match: Match)
-	for _, competitor in match.competitors do
+	local state = match.station.arena.state
+	for side, competitor in match.competitors do
 		competitor.options = Brainrots.roll(3, rng)
 		competitor.pick = nil
 		competitor.aim = nil
 		competitor.locked = false
+		state:SetAttribute(`{side}Pick`, "")
 		local player = competitor.player
 		if player then
 			player:SetAttribute("DraftOptions", table.concat(competitor.options, ","))
@@ -136,8 +194,9 @@ local function draft(match: Match)
 		end)
 	end)
 	-- Anyone who didn't pick gets one of their options.
-	for _, competitor in match.competitors do
+	for side, competitor in match.competitors do
 		competitor.pick = competitor.pick or competitor.options[rng:NextInteger(1, #competitor.options)]
+		state:SetAttribute(`{side}Pick`, competitor.pick)
 		if competitor.player then
 			competitor.player:SetAttribute("DraftPick", competitor.pick)
 		end
@@ -145,13 +204,14 @@ local function draft(match: Match)
 end
 
 local function aim(match: Match, battle: Battle.Battle)
+	local axis = match.station.arena.facing
 	for side, competitor in match.competitors do
 		if not competitor.player then
 			-- The bot aims roughly at the other ball.
 			local mine, theirs = battle.balls[side], battle.balls[other(side)]
 			local toward = theirs.core.Position - mine.core.Position
-			local wobble = CFrame.fromAxisAngle(Vector3.yAxis, math.rad(rng:NextNumber(-35, 35)))
-			competitor.aim = Battle.clampAim(wobble:VectorToWorldSpace(toward), competitor.forward)
+			local wobble = CFrame.fromAxisAngle(axis, math.rad(rng:NextNumber(-35, 35)))
+			competitor.aim = Battle.clampAim(wobble:VectorToWorldSpace(toward), competitor.forward, axis)
 			competitor.locked = true
 		end
 	end
@@ -164,7 +224,7 @@ local function aim(match: Match, battle: Battle.Battle)
 end
 
 local function runMatch(match: Match)
-	local state = match.arena.state
+	local state = match.station.arena.state
 	local round = 0
 	while not quitter(match) do
 		round += 1
@@ -176,10 +236,10 @@ local function runMatch(match: Match)
 			break
 		end
 
-		local battle = Battle.new(match.arena, {
+		local battle = Battle.new(match.station.arena, {
 			Left = match.competitors.Left.pick :: string,
 			Right = match.competitors.Right.pick :: string,
-		}, match.players)
+		})
 		match.battle = battle
 		aim(match, battle)
 
@@ -200,8 +260,7 @@ local function runMatch(match: Match)
 		battle.running = false
 		if winner then
 			local loser = match.competitors[other(winner)]
-			loser.hearts -= 1
-			state:SetAttribute(`{loser.side}Hearts`, loser.hearts)
+			setHearts(match, loser, loser.hearts - 1)
 		end
 		state:SetAttribute("RoundWinner", winner or "Draw")
 		setPhase(match, "Resolve", Config.RESOLVE_TIME)
@@ -225,30 +284,25 @@ local function runMatch(match: Match)
 	task.wait(Config.MATCH_OVER_TIME)
 end
 
-local function startMatch(left: Player, right: Player?)
-	local slot = 0
-	while slotsInUse[slot] do
-		slot += 1
-	end
-	if slot >= MAX_ARENAS then
-		return
-	end
-	slotsInUse[slot] = true
-	matchCount += 1
-
-	local id = `Match{matchCount}`
-	local arena = Arena.build(id, slot)
-	local players = { left }
-	if right then
-		table.insert(players, right)
-	end
-
-	local function competitor(side: string, player: Player?): Competitor
+local function startMatch(station: Station.Station, occupants: { [string]: Station.Occupant? })
+	local arena = station.arena
+	local state = arena.state
+	local match: Match = {
+		id = arena.model.Name,
+		station = station,
+		competitors = {},
+		players = {},
+		phase = "",
+		battle = nil,
+	}
+	for _, side in SIDES do
+		local occupant = occupants[side]
+		local player = if typeof(occupant) == "Instance" and occupant:IsA("Player") then occupant else nil
 		local _, forward = arena.spawn(side)
-		return {
+		match.competitors[side] = {
 			side = side,
 			player = player,
-			name = if player then player.DisplayName else "🤖 Bot",
+			name = if player then player.DisplayName else "🤖",
 			hearts = Config.HEARTS,
 			forward = forward,
 			options = {},
@@ -256,59 +310,127 @@ local function startMatch(left: Player, right: Player?)
 			aim = nil,
 			locked = false,
 		}
-	end
-	local match: Match = {
-		id = id,
-		arena = arena,
-		slot = slot,
-		competitors = { Left = competitor("Left", left), Right = competitor("Right", right) },
-		players = players,
-		phase = "",
-		battle = nil,
-	}
-
-	for side, entry in match.competitors do
-		arena.state:SetAttribute(`{side}Name`, entry.name)
-		arena.state:SetAttribute(`{side}Hearts`, entry.hearts)
-		if entry.player then
-			entry.player:SetAttribute("Side", side)
-			entry.player:SetAttribute("MatchId", id)
-			matchOf[entry.player] = match
-			holdAvatar(entry.player, true)
+		if player then
+			table.insert(match.players, player)
 		end
+	end
+	matchAt[station] = match
+
+	for _, name in { "RoundWinner", "MatchWinner", "LeftPick", "RightPick" } do
+		state:SetAttribute(name, "")
+	end
+	state:SetAttribute("SuddenDeath", false)
+	for side, competitor in match.competitors do
+		state:SetAttribute(`{side}Name`, competitor.name)
+		state:SetAttribute(`{side}UserId`, if competitor.player then competitor.player.UserId else 0)
+		local player = competitor.player
+		if player then
+			player:SetAttribute("WaitingAt", "")
+			player:SetAttribute("WaitingSide", "")
+			player:SetAttribute("Side", side)
+			player:SetAttribute("MatchId", match.id)
+			matchOf[player] = match
+		end
+		place(bodyOf(match, competitor), station.stands[side], true)
+		setHearts(match, competitor, Config.HEARTS)
 	end
 
 	task.spawn(function()
 		local ok, err = xpcall(runMatch, debug.traceback, match)
 		if not ok then
-			warn(`Match {id} broke: {err}`)
+			warn(`Match at {match.id} broke: {err}`)
 		end
 		if match.battle then
 			match.battle:destroy()
 		end
-		for _, player in players do
-			matchOf[player] = nil
-			if player.Parent == Players then
-				player:SetAttribute("MatchId", "")
-				player:SetAttribute("Side", "")
-				player:SetAttribute("DraftOptions", "")
-				holdAvatar(player, false)
+		for side, competitor in match.competitors do
+			local body = bodyOf(match, competitor)
+			showHearts(body, nil)
+			local player = competitor.player
+			if player then
+				matchOf[player] = nil
+				if player.Parent == Players then
+					player:SetAttribute("MatchId", "")
+					player:SetAttribute("Side", "")
+					player:SetAttribute("DraftOptions", "")
+					place(body, station.exits[side], false)
+				end
+			elseif station.botHome then
+				place(body, station.botHome, true)
 			end
 		end
-		arena.destroy()
-		slotsInUse[slot] = nil
+		state:SetAttribute("Phase", "")
+		matchAt[station] = nil
 	end)
 end
 
-local function onPad(player: Player, pad: BasePart): boolean
+-- Lobby
+
+local function inSquare(player: Player, square: BasePart): boolean
 	local character = player.Character
 	local root = character and character:FindFirstChild("HumanoidRootPart")
-	if not root or not root:IsA("BasePart") then
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	if not root or not root:IsA("BasePart") or not humanoid or humanoid.Health <= 0 then
 		return false
 	end
-	local offset = root.Position - pad.Position
-	-- Pads are upright cylinders, so their diameter is Size.Y.
-	return Vector2.new(offset.X, offset.Z).Magnitude < pad.Size.Y / 2 and math.abs(offset.Y) < 8
+	local offset = square.CFrame:PointToObjectSpace(root.Position)
+	return math.abs(offset.X) < square.Size.X / 2 and math.abs(offset.Z) < square.Size.Z / 2 and offset.Y > -1 and offset.Y < 8
+end
+
+-- Fills in who's standing in each station's squares, starts matches, and keeps each player's
+-- WaitingAt and WaitingSide up to date.
+local function checkStations(filledSince: { [Station.Station]: number })
+	local now = os.clock()
+	local waiting: { [Player]: { at: string, side: string } } = {}
+
+	for _, station in lobby.stations do
+		if matchAt[station] then
+			station.show({}, true)
+			continue
+		end
+		local occupants: { [string]: Station.Occupant? } = {}
+		for _, side in SIDES do
+			if side == "Right" and station.bot then
+				occupants.Right = "Bot"
+				continue
+			end
+			for _, player in Players:GetPlayers() do
+				if not matchOf[player] and not waiting[player] and inSquare(player, station.squares[side]) then
+					occupants[side] = player
+					waiting[player] = { at = station.arena.model.Name, side = side }
+					break
+				end
+			end
+		end
+
+		if occupants.Left and occupants.Right then
+			filledSince[station] = filledSince[station] or now
+			if now - filledSince[station] >= Config.SETTLE_TIME then
+				filledSince[station] = nil
+				for _, side in SIDES do
+					local occupant = occupants[side]
+					if typeof(occupant) == "Instance" and occupant:IsA("Player") then
+						waiting[occupant] = nil
+					end
+				end
+				startMatch(station, occupants)
+				station.show({}, true)
+				continue
+			end
+		else
+			filledSince[station] = nil
+		end
+		station.show(occupants, false)
+	end
+
+	for _, player in Players:GetPlayers() do
+		if matchOf[player] then
+			continue
+		end
+		local spot = waiting[player]
+		player:SetAttribute("WaitingAt", if spot then spot.at else "")
+		player:SetAttribute("WaitingSide", if spot then spot.side else "")
+	end
 end
 
 Remotes.Draft.OnServerEvent:Connect(function(player: Player, id: unknown)
@@ -326,43 +448,41 @@ Remotes.Aim.OnServerEvent:Connect(function(player: Player, direction: unknown, l
 	if not match or not competitor or match.phase ~= "Aim" or competitor.locked then
 		return
 	end
-	competitor.aim = Battle.clampAim(direction, competitor.forward)
+	competitor.aim = Battle.clampAim(direction, competitor.forward, match.station.arena.facing)
 	competitor.locked = locked == true
 end)
+
+-- If a player respawns mid-match, put the new avatar back on its hover pad.
+local function watchCharacter(player: Player)
+	player.CharacterAdded:Connect(function(character)
+		local match = matchOf[player]
+		local competitor = match and competitorOf(match, player)
+		if not match or not competitor then
+			return
+		end
+		character:WaitForChild("HumanoidRootPart", 5)
+		character:WaitForChild("Head", 5)
+		if matchOf[player] == match then
+			place(character, match.station.stands[competitor.side], true)
+			showHearts(character, competitor.hearts)
+		end
+	end)
+end
 
 function MatchService.start()
 	lobby = Lobby.build()
 
-	local botPadSince: { [Player]: number } = {}
-	task.spawn(function()
-		while true do
-			local waiting = {}
-			local now = os.clock()
-			for _, player in Players:GetPlayers() do
-				if matchOf[player] then
-					botPadSince[player] = nil
-				elseif onPad(player, lobby.duelPad) then
-					table.insert(waiting, player)
-				elseif onPad(player, lobby.botPad) then
-					botPadSince[player] = botPadSince[player] or now
-					if now - botPadSince[player] >= BOT_PAD_DELAY then
-						botPadSince[player] = nil
-						startMatch(player, nil)
-					end
-				else
-					botPadSince[player] = nil
-				end
-			end
-			while #waiting >= 2 do
-				startMatch(table.remove(waiting, 1) :: Player, table.remove(waiting, 1))
-			end
-			lobby.duelSign.Text = `⚔️ {#waiting}/2`
-			task.wait(0.25)
-		end
-	end)
+	Players.PlayerAdded:Connect(watchCharacter)
+	for _, player in Players:GetPlayers() do
+		watchCharacter(player)
+	end
 
-	Players.PlayerRemoving:Connect(function(player)
-		botPadSince[player] = nil
+	task.spawn(function()
+		local filledSince: { [Station.Station]: number } = {}
+		while true do
+			checkStations(filledSince)
+			task.wait(CHECK_EVERY)
+		end
 	end)
 end
 

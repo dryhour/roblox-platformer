@@ -10,8 +10,9 @@ local Remotes = require(ReplicatedStorage.Shared.Remotes)
 local Arena = require(script.Parent.World.Arena)
 
 -- One round's auto-battle. The server owns and simulates both balls, so nobody can cheat their
--- ball's movement. Once launched, balls keep rolling at their own speed, bounce off the walls
--- and each other, take damage, and trigger their abilities. Sudden death closes the walls in.
+-- ball's movement. Once launched, balls fly around the arena's upright box at their own speed
+-- with no gravity, bounce off the walls and each other, take damage, and trigger their
+-- abilities. Sudden death closes the walls in.
 --
 -- Abilities live in src/server/Skills. Each is a table of optional hooks, called with
 -- (battle, ball, ...):
@@ -34,6 +35,7 @@ export type Ball = {
 	def: Brainrots.Brainrot,
 	model: Model,
 	core: BasePart,
+	float: VectorForce, -- cancels gravity
 	forward: Vector3,
 	hp: number,
 	maxHp: number,
@@ -49,14 +51,12 @@ export type Ball = {
 	lastWallHitAt: number,
 	skill: { [string]: any },
 	state: { [string]: any }, -- for the ability's own use
-	healthFill: Frame,
 	healthText: TextLabel,
 }
 
 export type Battle = typeof(setmetatable(
 	{} :: {
 		arena: Arena.Arena,
-		players: { Player },
 		balls: { [string]: Ball },
 		byCore: { [BasePart]: Ball },
 		owned: { [Ball]: { Instance } },
@@ -79,58 +79,40 @@ for _, module in script.Parent.Skills:GetChildren() do
 	end
 end
 
-local function flat(vector: Vector3): Vector3
-	return Vector3.new(vector.X, 0, vector.Z)
-end
-
--- Turns any value into a flat unit direction within the aim arc of `forward`.
+-- Turns any value into a unit direction in the arena's plane within the aim arc of `forward`.
 Battle.clampAim = AimMath.clamp
 
-local function healthBar(core: BasePart, color: Color3): (Frame, TextLabel)
-	local bar = Instance.new("BillboardGui")
-	bar.Name = "HealthBar"
-	bar.Size = UDim2.fromOffset(110, 22)
-	bar.StudsOffset = Vector3.new(0, Config.BALL_SIZE * 0.95, 0)
-	bar.AlwaysOnTop = true
-	bar.LightInfluence = 0
-
-	local back = Instance.new("Frame")
-	back.Size = UDim2.fromScale(1, 1)
-	back.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
-	back.BackgroundTransparency = 0.15
-	back.BorderSizePixel = 0
-	back.Parent = bar
-	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(0, 6)
-	corner.Parent = back
-
-	local fill = Instance.new("Frame")
-	fill.Size = UDim2.fromScale(1, 1)
-	fill.BackgroundColor3 = color
-	fill.BorderSizePixel = 0
-	fill.Parent = back
-	corner:Clone().Parent = fill
+-- The ball's health as a big number over it, outlined in its side's color.
+local function healthLabel(core: BasePart, color: Color3): TextLabel
+	local billboard = Instance.new("BillboardGui")
+	billboard.Name = "Health"
+	billboard.Size = UDim2.fromScale(Config.BALL_SIZE * 1.2, Config.BALL_SIZE * 0.5)
+	billboard.StudsOffset = Vector3.new(0, Config.BALL_SIZE * 0.8, 0)
+	billboard.AlwaysOnTop = true
+	billboard.LightInfluence = 0
+	billboard.MaxDistance = 250
 
 	local text = Instance.new("TextLabel")
 	text.Size = UDim2.fromScale(1, 1)
 	text.BackgroundTransparency = 1
 	text.Font = Enum.Font.GothamBlack
-	text.TextSize = 15
+	text.TextScaled = true
 	text.TextColor3 = Color3.new(1, 1, 1)
-	text.TextStrokeTransparency = 0.2
-	text.ZIndex = 2
-	text.Parent = back
+	text.Parent = billboard
+	local stroke = Instance.new("UIStroke")
+	stroke.Color = color
+	stroke.Thickness = 3
+	stroke.Parent = text
 
-	bar.Parent = core
-	return fill, text
+	billboard.Parent = core
+	return text
 end
 
 -- Sets up a battle in `arena` with the picked brainrot for each side ("Left", "Right"). The balls
 -- sit frozen at their spawn points until launch().
-function Battle.new(arena: Arena.Arena, picks: { [string]: string }, players: { Player }): Battle
+function Battle.new(arena: Arena.Arena, picks: { [string]: string }): Battle
 	local self = setmetatable({
 		arena = arena,
-		players = players,
 		balls = {},
 		byCore = {},
 		owned = {},
@@ -157,6 +139,7 @@ function Battle.spawnBall(self: Battle, side: string, id: string)
 	model:SetAttribute("Side", side)
 	model:SetAttribute("Brainrot", def.id)
 	model:SetAttribute("Forward", forward)
+	model:SetAttribute("Facing", self.arena.facing)
 
 	local core = Instance.new("Part")
 	core.Name = "Core"
@@ -170,16 +153,25 @@ function Battle.spawnBall(self: Battle, side: string, id: string)
 	core.Parent = model
 	model.PrimaryPart = core
 
+	local attachment = Instance.new("Attachment")
+	attachment.Parent = core
+	local float = Instance.new("VectorForce")
+	float.Name = "Float"
+	float.Attachment0 = attachment
+	float.RelativeTo = Enum.ActuatorRelativeTo.World
+	float.ApplyAtCenterOfMass = true
+	float.Parent = core
+
 	local look = Looks.build(def.id)
-	Looks.place(look, CFrame.lookAt(position, position + forward))
+	Looks.place(look, CFrame.lookAt(position, position + self.arena.facing))
 	look.Parent = model
 
-	local fill, text = healthBar(core, Config.SIDE_COLORS[side])
 	local ball: Ball = {
 		side = side,
 		def = def,
 		model = model,
 		core = core,
+		float = float,
 		forward = forward,
 		hp = def.stats.health,
 		maxHp = def.stats.health,
@@ -195,8 +187,7 @@ function Battle.spawnBall(self: Battle, side: string, id: string)
 		lastWallHitAt = 0,
 		skill = skills[def.skill] or {},
 		state = {},
-		healthFill = fill,
-		healthText = text,
+		healthText = healthLabel(core, Config.SIDE_COLORS[side]),
 	}
 	self:refreshHealth(ball)
 	self.balls[side] = ball
@@ -210,13 +201,10 @@ function Battle.spawnBall(self: Battle, side: string, id: string)
 	model.Parent = self.arena.model
 end
 
--- Sends a visual effect to the players in this match.
-function Battle.effect(self: Battle, kind: string, ...: any)
-	for _, player in self.players do
-		if player.Parent then
-			Remotes.Effect:FireClient(player, kind, ...)
-		end
-	end
+-- Sends a visual effect to every client: the players in this match, and anyone in the lobby
+-- close enough to watch.
+function Battle.effect(_self: Battle, kind: string, ...: any)
+	Remotes.Effect:FireAllClients(kind, ...)
 end
 
 -- Puts an ability's part in the arena and removes it when the ball is knocked out or the round
@@ -247,7 +235,6 @@ function Battle.addSpeedBuff(_self: Battle, ball: Ball, key: string, multiplier:
 end
 
 function Battle.refreshHealth(_self: Battle, ball: Ball)
-	ball.healthFill.Size = UDim2.fromScale(math.clamp(ball.hp / ball.maxHp, 0, 1), 1)
 	ball.healthText.Text = tostring(math.max(0, math.ceil(ball.hp)))
 end
 
@@ -376,21 +363,25 @@ function Battle.speedOf(_self: Battle, ball: Ball, now: number): number
 	return ball.def.stats.speed * multiplier
 end
 
--- Keeps the ball rolling at its speed in whatever direction it's going (bounces only change
--- the direction), steers it toward a black hole if one is pulling, and keeps it inside the walls.
+-- Keeps the ball moving at its speed in whatever direction it's going (bounces only change the
+-- direction), steers it toward a black hole if one is pulling, and keeps it inside the walls and
+-- in the box's plane. Works in the arena's own space: X across, Y up.
 function Battle.keepRolling(self: Battle, ball: Ball, deltaTime: number, now: number)
 	local core = ball.core
-	local velocity = core.AssemblyLinearVelocity
-	local direction = flat(velocity)
+	local space = self.arena.cframe
+	local velocity = space:VectorToObjectSpace(core.AssemblyLinearVelocity)
+	local direction = Vector3.new(velocity.X, velocity.Y, 0)
 	if direction.Magnitude > 0.5 then
 		direction = direction.Unit
 	else
 		local angle = rng:NextNumber(0, math.pi * 2)
-		direction = Vector3.new(math.cos(angle), 0, math.sin(angle))
+		direction = Vector3.new(math.cos(angle), math.sin(angle), 0)
 	end
 
+	local offset = space:PointToObjectSpace(core.Position)
 	if ball.pullTarget and ball.pullUntil > now then
-		local toward = flat(ball.pullTarget - core.Position)
+		local toward = space:PointToObjectSpace(ball.pullTarget) - offset
+		toward = Vector3.new(toward.X, toward.Y, 0)
 		if toward.Magnitude > 0.5 then
 			local steered = direction:Lerp(toward.Unit, math.min(1, 6 * deltaTime))
 			if steered.Magnitude > 0.01 then
@@ -400,25 +391,26 @@ function Battle.keepRolling(self: Battle, ball: Ball, deltaTime: number, now: nu
 	end
 
 	local limit = self.arena.halfWidth() - self:radius(ball)
-	local offset = core.Position - self.arena.center
-	local x, z = offset.X, offset.Z
+	local x, y = offset.X, offset.Y
 	if math.abs(x) > limit then
 		x = math.sign(x) * limit
 		if direction.X * x > 0 then
-			direction = Vector3.new(-direction.X, 0, direction.Z)
+			direction = Vector3.new(-direction.X, direction.Y, 0)
 		end
 	end
-	if math.abs(z) > limit then
-		z = math.sign(z) * limit
-		if direction.Z * z > 0 then
-			direction = Vector3.new(direction.X, 0, -direction.Z)
+	if math.abs(y) > limit then
+		y = math.sign(y) * limit
+		if direction.Y * y > 0 then
+			direction = Vector3.new(direction.X, -direction.Y, 0)
 		end
 	end
-	if x ~= offset.X or z ~= offset.Z then
-		core.Position = self.arena.center + Vector3.new(x, offset.Y, z)
+	if x ~= offset.X or y ~= offset.Y or math.abs(offset.Z) > 0.05 then
+		core.Position = space:PointToWorldSpace(Vector3.new(x, y, 0))
 	end
 
-	local newVelocity = direction * self:speedOf(ball, now) + Vector3.new(0, math.min(velocity.Y, 30), 0)
+	-- Gravity would curve every path downward. Mass changes as Charge balls grow.
+	ball.float.Force = Vector3.new(0, core.AssemblyMass * workspace.Gravity, 0)
+	local newVelocity = space:VectorToWorldSpace(direction * self:speedOf(ball, now))
 	core.AssemblyLinearVelocity = newVelocity
 	ball.lastVelocity = newVelocity
 end
@@ -459,7 +451,8 @@ end
 -- Launches each side's ball in its aimed direction (kept within the aim arc).
 function Battle.launch(self: Battle, aims: { [string]: Vector3? })
 	for side, ball in self.balls do
-		local direction = Battle.clampAim(aims[side], ball.forward)
+		local direction = Battle.clampAim(aims[side], ball.forward, self.arena.facing)
+		ball.float.Force = Vector3.new(0, ball.core:GetMass() * workspace.Gravity, 0)
 		ball.core.Anchored = false
 		ball.core:SetNetworkOwner(nil)
 		ball.core.AssemblyLinearVelocity = direction * ball.def.stats.speed
@@ -510,7 +503,7 @@ function Battle.destroy(self: Battle)
 		self:clearOwned(ball)
 		ball.model:Destroy()
 	end
-	self.arena.setHalfWidth(Config.ARENA_SIZE.X / 2)
+	self.arena.setHalfWidth(Config.ARENA_SIZE / 2)
 	self.arena.setDanger(false)
 	self.arena.state:SetAttribute("SuddenDeath", false)
 end

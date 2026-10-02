@@ -3,8 +3,9 @@ local Widgets = {}
 
 Widgets.FONT = Enum.Font.GothamBold
 Widgets.FONT_REGULAR = Enum.Font.GothamMedium
+Widgets.TITLE_FONT = Font.new("rbxasset://fonts/families/Michroma.json", Enum.FontWeight.Bold)
 
-Widgets.PANEL = Color3.fromRGB(22, 24, 32)
+Widgets.PANEL = Color3.fromRGB(16, 22, 44)
 Widgets.BUTTON = Color3.fromRGB(56, 60, 78)
 Widgets.TEXT = Color3.fromRGB(245, 246, 250)
 Widgets.DARK_TEXT = Color3.fromRGB(25, 25, 30)
@@ -142,6 +143,26 @@ function Widgets.swatch(color: Color3, size: number, props: Props?): Frame
 		}, props),
 		{ Widgets.corner(4) }
 	)
+end
+
+-- Shrinks a piece of UI to fit short screens, like phones in landscape (UI.start sets the
+-- scale). Give it to each group pinned to a corner or edge rather than the whole ScreenGui, so
+-- groups pinned to the right or bottom stay there.
+local fitted: { UIScale } = {}
+local fitScale = 1
+
+function Widgets.fit(object: GuiObject)
+	local scale = Instance.new("UIScale")
+	scale.Scale = fitScale
+	scale.Parent = object
+	table.insert(fitted, scale)
+end
+
+function Widgets.setFitScale(scale: number)
+	fitScale = scale
+	for _, uiScale in fitted do
+		uiScale.Scale = scale
+	end
 end
 
 -- Removes the visible children of a frame, keeping its layout objects.

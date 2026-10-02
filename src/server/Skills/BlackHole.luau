@@ -3,7 +3,7 @@
 -- off its ability.
 local BlackHole = {}
 
-local RADIUS = 18
+local RADIUS = 7
 local DURATION = 3
 
 function BlackHole.onLowHealth(battle, ball)

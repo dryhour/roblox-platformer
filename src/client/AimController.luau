@@ -9,12 +9,12 @@ local Config = require(Shared:WaitForChild("Config"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local MyMatch = require(script.Parent.MyMatch)
 
--- Aiming your launch. A line shows where your ball will go, bouncing off the walls; point at
--- where you want it to go, then lock it in:
+-- Aiming your launch. A line shows where your ball will go, bouncing off the walls of the
+-- upright arena; point at where you want it to go, then lock it in:
 --   mouse     move to aim, click to lock
 --   touch     drag to aim, let go to lock
 --   gamepad   left stick to aim, A to lock
---   keyboard  A/D or arrows to turn, Space or Enter to lock
+--   keyboard  W/S or Up/Down to aim higher or lower, Space or Enter to lock
 -- If time runs out first, the server uses wherever you were aiming.
 local AimController = {}
 
@@ -22,7 +22,8 @@ local SEND_EVERY = 0.1
 local KEY_TURN_SPEED = math.rad(120) -- radians per second
 local STICK_DEADZONE = 0.4
 local LINE_BOUNCES = 3
-local LINE_LENGTH = 160
+local LINE_LENGTH = Config.ARENA_SIZE * 2.5
+local LINE_THICKNESS = 0.3
 local AIMING_COLOR = Color3.fromRGB(255, 255, 255)
 local LOCKED_COLOR = Color3.fromRGB(90, 230, 110)
 
@@ -39,51 +40,55 @@ function AimController.isLocked(): boolean
 	return locked
 end
 
-local function aiming(): (BasePart?, Vector3?)
+-- Your ball's core, its forward, and the arena's facing (the axis aims turn around), while
+-- you're aiming.
+local function aiming(): (BasePart?, Vector3?, Vector3?)
 	if MyMatch.phase() ~= "Aim" then
-		return nil, nil
+		return nil, nil, nil
 	end
 	local ball = MyMatch.myBall()
 	local core = ball and ball.PrimaryPart
 	local forward = ball and ball:GetAttribute("Forward")
-	if core and typeof(forward) == "Vector3" then
-		return core, forward
+	local axis = ball and ball:GetAttribute("Facing")
+	if core and typeof(forward) == "Vector3" and typeof(axis) == "Vector3" then
+		return core, forward, axis
 	end
-	return nil, nil
+	return nil, nil, nil
 end
 
 local function aimAtWorld(point: Vector3)
-	local core, forward = aiming()
-	if not core or not forward or locked then
+	local core, forward, axis = aiming()
+	if not core or not forward or not axis or locked then
 		return
 	end
-	local toward = Vector3.new(point.X - core.Position.X, 0, point.Z - core.Position.Z)
+	local toward = AimMath.flatten(point - core.Position, axis)
 	if toward.Magnitude > 0.5 then
-		angle = math.clamp(AimMath.angle(forward, toward.Unit), -Config.AIM_ARC, Config.AIM_ARC)
+		angle = math.clamp(AimMath.angle(forward, toward.Unit, axis), -Config.AIM_ARC, Config.AIM_ARC)
 		dirty = true
 	end
 end
 
--- Aims at the spot on the arena floor under a point on the screen (viewport coordinates).
+-- Aims at the spot in the arena under a point on the screen (viewport coordinates).
 local function aimAtScreen(point: Vector2)
-	local core = aiming()
-	if not core then
+	local core, _, axis = aiming()
+	if not core or not axis then
 		return
 	end
 	local ray = workspace.CurrentCamera:ViewportPointToRay(point.X, point.Y)
-	if math.abs(ray.Direction.Y) < 0.001 then
+	local along = ray.Direction:Dot(axis)
+	if math.abs(along) < 0.001 then
 		return
 	end
-	local distance = (core.Position.Y - ray.Origin.Y) / ray.Direction.Y
+	local distance = (core.Position - ray.Origin):Dot(axis) / along
 	if distance > 0 then
 		aimAtWorld(ray.Origin + ray.Direction * distance)
 	end
 end
 
 local function send()
-	local _, forward = aiming()
-	if forward then
-		Remotes.Aim:FireServer(AimMath.rotate(forward, angle), locked)
+	local _, forward, axis = aiming()
+	if forward and axis then
+		Remotes.Aim:FireServer(AimMath.rotate(forward, angle, axis), locked)
 		lastSentAt = os.clock()
 		dirty = false
 	end
@@ -119,7 +124,7 @@ local function drawLine(points: { Vector3 }?)
 		end
 		local from, to = (points :: { Vector3 })[index], (points :: { Vector3 })[index + 1]
 		local length = (to - from).Magnitude
-		part.Size = Vector3.new(0.5, 0.5, math.max(length, 0.1))
+		part.Size = Vector3.new(LINE_THICKNESS, LINE_THICKNESS, math.max(length, 0.1))
 		part.CFrame = CFrame.lookAt((from + to) / 2, to + Vector3.new(0, 0.001, 0))
 		part.Color = if locked then LOCKED_COLOR else AIMING_COLOR
 		-- Later bounces fade, so the first leg reads clearly.
@@ -142,8 +147,8 @@ function AimController.start()
 			end
 		end
 
-		local core, forward = aiming()
-		if not core or not forward then
+		local core, forward, axis = aiming()
+		if not core or not forward or not axis then
 			drawLine(nil)
 			return
 		end
@@ -155,21 +160,24 @@ function AimController.start()
 			end
 			if stick.Magnitude > STICK_DEADZONE then
 				local camera = workspace.CurrentCamera.CFrame
-				local right = Vector3.new(camera.RightVector.X, 0, camera.RightVector.Z).Unit
-				local up = Vector3.new(camera.UpVector.X, 0, camera.UpVector.Z)
-				up = if up.Magnitude > 0.01 then up.Unit else Vector3.new(camera.LookVector.X, 0, camera.LookVector.Z).Unit
+				local right = AimMath.flatten(camera.RightVector, axis)
+				local up = AimMath.flatten(camera.UpVector, axis)
 				aimAtWorld(core.Position + right * stick.X + up * stick.Y)
 			end
 			local turn = 0
 			if not UserInputService:GetFocusedTextBox() then
-				if UserInputService:IsKeyDown(Enum.KeyCode.A) or UserInputService:IsKeyDown(Enum.KeyCode.Left) then
+				if UserInputService:IsKeyDown(Enum.KeyCode.W) or UserInputService:IsKeyDown(Enum.KeyCode.Up) then
 					turn += 1
 				end
-				if UserInputService:IsKeyDown(Enum.KeyCode.D) or UserInputService:IsKeyDown(Enum.KeyCode.Right) then
+				if UserInputService:IsKeyDown(Enum.KeyCode.S) or UserInputService:IsKeyDown(Enum.KeyCode.Down) then
 					turn -= 1
 				end
 			end
 			if turn ~= 0 then
+				-- Turning one way raises a ball heading right but lowers one heading left.
+				if axis:Cross(forward).Y < 0 then
+					turn = -turn
+				end
 				angle = math.clamp(angle + turn * KEY_TURN_SPEED * deltaTime, -Config.AIM_ARC, Config.AIM_ARC)
 				dirty = true
 			end
@@ -181,7 +189,7 @@ function AimController.start()
 		local arena = MyMatch.arena()
 		local walls = arena and arena:FindFirstChild("Walls")
 		if walls then
-			drawLine(AimMath.trace(core.Position, AimMath.rotate(forward, angle), walls, LINE_BOUNCES, LINE_LENGTH))
+			drawLine(AimMath.trace(core.Position, AimMath.rotate(forward, angle, axis), axis, walls, LINE_BOUNCES, LINE_LENGTH))
 		end
 	end)
 
