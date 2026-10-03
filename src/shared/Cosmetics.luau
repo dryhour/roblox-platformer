@@ -1,7 +1,8 @@
 local Brainrots = require(script.Parent.Brainrots)
 
--- Cosmetics: flyers you ride around the lobby (and float on beside the arena), and explosions
--- that play when your ball knocks the other one out. Both come from the Store's machines,
+-- Cosmetics: flyers you ride around the lobby (and float on beside the arena), and explosions:
+-- when your ball wins a round, the beaten ball bursts into energy in your explosion's style,
+-- which flies into the losing player and blows up on them. Both come from the Store's machines,
 -- level rewards and reward rolls, and are equipped in the Inventory.
 --
 -- Flyer parts sit around the flyer's top center, where your feet go: forward is -Z.
@@ -19,11 +20,18 @@ export type Flyer = {
 export type Explosion = {
 	id: string,
 	name: string,
-	emoji: string, -- pops up over the knockout
+	emoji: string, -- pops up over the blast
 	rarity: string,
 	description: string,
 	colors: { Color3 },
+	texture: string, -- what the particles look like
+	speed: number, -- how fast they fly out
+	lifetime: number, -- how long they last
+	rise: number, -- upward pull on them (negative falls)
 }
+
+local SPARKLES = "rbxasset://textures/particles/sparkles_main.dds"
+local FIRE = "rbxasset://textures/particles/fire_main.dds"
 
 Cosmetics.FLYER_LIFT = 1.4 -- how much higher a flyer holds you up
 
@@ -129,6 +137,10 @@ Cosmetics.flyers = {
 Cosmetics.explosions = {
 	{
 		id = "Default",
+		texture = FIRE,
+		speed = 26,
+		lifetime = 0.8,
+		rise = 4,
 		name = "Boom",
 		emoji = "💥",
 		rarity = "Common",
@@ -137,6 +149,10 @@ Cosmetics.explosions = {
 	},
 	{
 		id = "Confetti",
+		texture = SPARKLES,
+		speed = 30,
+		lifetime = 1.4,
+		rise = -20,
 		name = "Confetti",
 		emoji = "🎉",
 		rarity = "Rare",
@@ -150,6 +166,10 @@ Cosmetics.explosions = {
 	},
 	{
 		id = "Hearts",
+		texture = SPARKLES,
+		speed = 18,
+		lifetime = 1.2,
+		rise = 6,
 		name = "Hearts",
 		emoji = "💖",
 		rarity = "Rare",
@@ -158,6 +178,10 @@ Cosmetics.explosions = {
 	},
 	{
 		id = "Lightning",
+		texture = SPARKLES,
+		speed = 45,
+		lifetime = 0.4,
+		rise = 0,
 		name = "Lightning",
 		emoji = "⚡",
 		rarity = "Epic",
@@ -166,6 +190,10 @@ Cosmetics.explosions = {
 	},
 	{
 		id = "Fire",
+		texture = FIRE,
+		speed = 20,
+		lifetime = 1,
+		rise = 18,
 		name = "Fire",
 		emoji = "🔥",
 		rarity = "Epic",
@@ -174,6 +202,10 @@ Cosmetics.explosions = {
 	},
 	{
 		id = "Galaxy",
+		texture = SPARKLES,
+		speed = 8,
+		lifetime = 2,
+		rise = 0,
 		name = "Galaxy",
 		emoji = "🌌",
 		rarity = "Legendary",

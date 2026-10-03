@@ -34,6 +34,13 @@ local function makePart(spec: Brainrots.PartSpec, scale: number): BasePart
 	if spec.spin then
 		part:SetAttribute("Spin", spec.spin)
 	end
+	if spec.role then
+		part:SetAttribute("Role", spec.role)
+		-- Rage faces stay hidden until a ball flies into a rage (see Visuals).
+		if spec.role == "rage" then
+			part.Transparency = 1
+		end
+	end
 	return part
 end
 

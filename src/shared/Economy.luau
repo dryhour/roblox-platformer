@@ -5,14 +5,16 @@ local Cosmetics = require(script.Parent.Cosmetics)
 -- The economy: what things cost, what you earn, and what's in each machine. Shared, so the UI
 -- shows the same prices and rewards the server hands out.
 --
--- Coins come from winning, quests, gifts and reward rolls, and buy Ball Machine rolls. Gems are
--- rarer (levels, gifts, rolls, or Robux) and buy Flyer and Explosion Machine rolls.
+-- Coins come from winning, quests, daily and online rewards and reward rolls, and buy Coin Ball
+-- Machine rolls. Gems are rarer (levels, daily rewards, rolls, codes, or Robux) and buy the Gem
+-- Ball, Flyer and Explosion Machines.
 local Economy = {}
 
 export type Reward = {
-	kind: string, -- "coins", "gems", "ball", "flyer", "explosion" or "boost"
+	kind: string, -- "coins", "gems", "ball", "flyer", "explosion", "boost" or "voucher"
 	id: string?, -- which ball, flyer or explosion; a random one if left out
-	amount: number?, -- how many coins or gems, or seconds of boost
+	rarity: string?, -- for a random ball, only this rarity
+	amount: number?, -- how many coins, gems or vouchers, or seconds of boost
 }
 
 export type Cost = { currency: string, amount: number } -- currency is "coins" or "gems"
@@ -76,25 +78,93 @@ function Economy.day(now: number): number
 	return now // 86400
 end
 
--- Gifts for time played this visit.
+-- Online rewards: for time played this visit. A voucher is a free "Pick Any Card": the draft's
+-- All Balls button.
 Economy.GIFTS = {
-	{ minutes = 2, reward = { kind = "coins", amount = 50 } :: Reward },
-	{ minutes = 5, reward = { kind = "gems", amount = 5 } :: Reward },
-	{ minutes = 10, reward = { kind = "coins", amount = 150 } :: Reward },
-	{ minutes = 15, reward = { kind = "ball" } :: Reward },
-	{ minutes = 25, reward = { kind = "gems", amount = 15 } :: Reward },
-	{ minutes = 40, reward = { kind = "coins", amount = 400 } :: Reward },
+	{ minutes = 10, reward = { kind = "coins", amount = 100 } :: Reward },
+	{ minutes = 20, reward = { kind = "boost", amount = 10 * 60 } :: Reward },
+	{ minutes = 30, reward = { kind = "voucher", amount = 1 } :: Reward },
+	{ minutes = 45, reward = { kind = "coins", amount = 300 } :: Reward },
+	{ minutes = 60, reward = { kind = "ball" } :: Reward },
 }
 
--- The Store's machines. Each roll gives one random thing of its kind; flyer and explosion rolls
--- only give ones you don't have yet.
+-- Daily rewards: claim one a day for a 7-day streak, then it starts over. Missing a day starts
+-- it over too.
+Economy.LOGIN_REWARDS = {
+	{ kind = "coins", amount = 100 } :: Reward,
+	{ kind = "ball" } :: Reward,
+	{ kind = "coins", amount = 150 } :: Reward,
+	{ kind = "gems", amount = 10 } :: Reward,
+	{ kind = "coins", amount = 250 } :: Reward,
+	{ kind = "gems", amount = 20 } :: Reward,
+	{ kind = "ball", rarity = "Legendary" } :: Reward,
+}
+
+-- Which daily reward (1-7) is next, and whether it can be claimed today, given when the last one
+-- was claimed and how far into the streak that was.
+function Economy.loginState(lastDay: number, streak: number, today: number): (number, boolean)
+	if lastDay == today then
+		return math.max(streak, 1), false
+	end
+	if lastDay ~= today - 1 or streak >= #Economy.LOGIN_REWARDS then
+		return 1, true
+	end
+	return streak + 1, true
+end
+
+-- The Store's machines, by tab. Each roll gives one random thing of its kind; flyer and
+-- explosion rolls only give ones you don't have yet. Ball machines have their own odds.
+export type Machine = {
+	id: string,
+	tab: string,
+	name: string,
+	kind: string,
+	emoji: string,
+	one: Cost,
+	ten: Cost?, -- 10 rolls at once, a little cheaper
+	weights: { [string]: number }?, -- rarity -> weight, for ball machines
+}
+
 Economy.MACHINES = {
-	{ id = "Balls", name = "Ball Machine", kind = "ball", emoji = "🎰", cost = { currency = "coins", amount = 250 } :: Cost },
-	{ id = "Flyers", name = "Flyer Machine", kind = "flyer", emoji = "🛸", cost = { currency = "gems", amount = 30 } :: Cost },
-	{ id = "Explosions", name = "Explosion Machine", kind = "explosion", emoji = "💥", cost = { currency = "gems", amount = 30 } :: Cost },
-}
+	{
+		id = "CoinBalls",
+		tab = "Balls",
+		name = "Coin Ball Machine",
+		kind = "ball",
+		emoji = "🎰",
+		one = { currency = "coins", amount = 250 },
+		ten = { currency = "coins", amount = 2250 },
+		weights = { Common = 55, Rare = 30, Epic = 12, Legendary = 2.8, Mythic = 0.2 },
+	},
+	{
+		id = "GemBalls",
+		tab = "Balls",
+		name = "Gem Ball Machine",
+		kind = "ball",
+		emoji = "💎",
+		one = { currency = "gems", amount = 25 },
+		ten = { currency = "gems", amount = 225 },
+		weights = { Common = 20, Rare = 40, Epic = 28, Legendary = 10, Mythic = 2 },
+	},
+	{
+		id = "Flyers",
+		tab = "Flyers",
+		name = "Flyer Machine",
+		kind = "flyer",
+		emoji = "🛸",
+		one = { currency = "gems", amount = 30 },
+	},
+	{
+		id = "Explosions",
+		tab = "Explosions",
+		name = "Explosion Machine",
+		kind = "explosion",
+		emoji = "💥",
+		one = { currency = "gems", amount = 30 },
+	},
+} :: { Machine }
 
-function Economy.machine(id: unknown)
+function Economy.machine(id: unknown): Machine?
 	for _, machine in Economy.MACHINES do
 		if machine.id == id then
 			return machine
@@ -102,6 +172,78 @@ function Economy.machine(id: unknown)
 	end
 	return nil
 end
+
+-- Each rarity's chance from a ball machine, as percents, in rarity order.
+function Economy.machineOdds(machine: Machine): { { rarity: string, percent: number } }
+	local weights = machine.weights or {}
+	local total = 0
+	for _, brainrot in Brainrots.list do
+		total += weights[brainrot.rarity] or 0
+	end
+	local odds = {}
+	for _, rarity in Economy.RARITY_ORDER do
+		local share = 0
+		for _, brainrot in Brainrots.list do
+			if brainrot.rarity == rarity then
+				share += weights[rarity] or 0
+			end
+		end
+		if share > 0 and total > 0 then
+			table.insert(odds, { rarity = rarity, percent = share / total * 100 })
+		end
+	end
+	return odds
+end
+
+-- The daily shop: 3 deals that change at midnight UTC, the same for everyone. Each can be
+-- bought once a day.
+export type Deal = { id: string, reward: Reward, cost: Cost }
+
+local DEAL_PRICES = { Common = 150, Rare = 300, Epic = 600, Legendary = 1200, Mythic = 2500 }
+
+function Economy.dailyDeals(day: number): { Deal }
+	local rng = Random.new(day * 7919 + 13)
+	local deals = {}
+	-- A ball for coins.
+	local brainrot = Brainrots.list[rng:NextInteger(1, #Brainrots.list)]
+	table.insert(deals, {
+		id = "Ball",
+		reward = { kind = "ball", id = brainrot.id },
+		cost = { currency = "coins", amount = DEAL_PRICES[brainrot.rarity] },
+	})
+	-- A flyer and an explosion for gems.
+	local flyer = Cosmetics.flyers[rng:NextInteger(1, #Cosmetics.flyers)]
+	table.insert(deals, {
+		id = "Flyer",
+		reward = { kind = "flyer", id = flyer.id },
+		cost = { currency = "gems", amount = math.round(DEAL_PRICES[flyer.rarity] / 20) },
+	})
+	local explosion = Cosmetics.explosions[rng:NextInteger(2, #Cosmetics.explosions)]
+	table.insert(deals, {
+		id = "Explosion",
+		reward = { kind = "explosion", id = explosion.id },
+		cost = { currency = "gems", amount = math.round(DEAL_PRICES[explosion.rarity] / 20) },
+	})
+	return deals
+end
+
+-- Mail: messages everyone gets once, some with a gift. Add new ones at the top with a new id.
+Economy.MAIL = {
+	{
+		id = "welcome",
+		title = "Welcome to Brainrot VS Brainrot!",
+		body = "Pick a ball, aim it, and watch it fight. Here's something to get you started.",
+		reward = { kind = "coins", amount = 300 } :: Reward?,
+	},
+}
+
+-- Updates: what's new, newest first.
+Economy.UPDATES = {
+	{ title = "3 New Balls", body = "Backrooms Mold strings hazard tape, Sigma Mewing charges and dashes, and Pure Brainrot Smile rages when it's hurt." },
+	{ title = "Daily Rewards & Store", body = "Claim a gift every day for 7 days, roll the new Gem Ball Machine, and check the daily deals." },
+	{ title = "Smoother Battles", body = "Balls glide and bounce smoothly, never get stuck bouncing flat, and every ball has 100 health." },
+	{ title = "Trading & Fusion", body = "Trade balls with anyone in your server, and fuse 3 of a ball into a rarer one." },
+}
 
 -- The reward roll after every match.
 Economy.ROLL = {
@@ -151,6 +293,10 @@ function Economy.describe(reward: Reward): (string, string, Color3)
 	elseif reward.kind == "explosion" and reward.id then
 		local explosion = Cosmetics.explosion(reward.id)
 		return explosion.name, explosion.emoji, Config.RARITIES[explosion.rarity].color
+	elseif reward.kind == "voucher" then
+		return "Pick Any Card", "🃏", Color3.fromRGB(190, 140, 255)
+	elseif reward.kind == "ball" and reward.rarity then
+		return `Random {reward.rarity} Ball`, "🎁", Config.RARITIES[reward.rarity].color
 	elseif reward.kind == "ball" then
 		return "Random Ball", "🎁", white
 	end

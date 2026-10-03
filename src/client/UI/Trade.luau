@@ -83,7 +83,7 @@ function Trade.new(gui: ScreenGui)
 		ZIndex = 30,
 		Parent = gui,
 	})
-	Widgets.fit(request)
+	Widgets.fit(request, 460, 0.8)
 	local requestFace = Widgets.create("ImageLabel", {
 		Position = UDim2.fromOffset(14, 14),
 		Size = UDim2.fromOffset(70, 70),

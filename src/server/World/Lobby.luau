@@ -6,7 +6,7 @@ local Builder = require(script.Parent.Builder)
 local Station = require(script.Parent.Station)
 
 -- The lobby: a big floating platform over the ocean where players walk around as their normal
--- avatars. Glowing arrows lead from the spawn down the middle, duel stations line both sides,
+-- avatars. Two treadmills run down the middle (one each way), duel stations line both sides,
 -- a gumball machine by the spawn opens the Store, and statues of every brainrot ball stand at
 -- the far end.
 local Lobby = {}
@@ -22,13 +22,16 @@ local THICKNESS = 8
 local WALKWAY_WIDTH = 28
 local STATION_X = 72 -- each column's boxes are this far from the middle
 local STATION_ZS = { 70, 14, -42, -98 }
-local CHEVRON_EVERY = 9
+local TREADMILL_SPEED = 14 -- studs per second; walking is 16
+local TREADMILL_WIDTH = 6
+local ARROW_EVERY = 7
 
 local FLOOR = Color3.fromRGB(58, 86, 150)
 local WALKWAY = Color3.fromRGB(78, 112, 186)
 local SIDE = Color3.fromRGB(32, 44, 84)
 local EDGE = Color3.fromRGB(110, 210, 255)
 local ARROW = Color3.fromRGB(235, 245, 255)
+local BELT = Color3.fromRGB(32, 36, 52)
 local PEDESTAL = Color3.fromRGB(26, 36, 70)
 
 local function decorateWorld()
@@ -45,16 +48,45 @@ local function decorateWorld()
 	end
 end
 
--- A ">" made of two glowing strips on the floor, pointing along -Z.
-local function chevron(b: Builder.Builder, folder: Folder, tip: Vector3, order: number)
+-- A glowing ">" lying on a belt, pointing along Z in the direction `way` (1 or -1). `along`
+-- is how far it starts from the belt's low-Z end; clients slide it along with the belt.
+local function arrow(b: Builder.Builder, parent: Instance, tip: Vector3, way: number, along: number)
 	for _, sign in { -1, 1 } do
-		local back = tip + Vector3.new(sign * 3, 0, 3)
-		local arm = b:box(Vector3.new(0.9, 0.12, (back - tip).Magnitude + 0.9), CFrame.lookAt((tip + back) / 2, tip), ARROW, "Arrow", folder)
+		local back = tip + Vector3.new(sign * 2, 0, -way * 2)
+		local arm = b:box(Vector3.new(0.6, 0.1, (back - tip).Magnitude + 0.6), CFrame.lookAt((tip + back) / 2, tip), ARROW, "Arrow", parent)
 		arm.Material = Enum.Material.Neon
+		arm.Transparency = 0.2
 		arm.CanCollide = false
+		arm.CanQuery = false
 		arm.CastShadow = false
-		arm:SetAttribute("Order", order)
+		arm:SetAttribute("Along", along)
 	end
+end
+
+-- A moving walkway along Z centered at `x`, from `fromZ` to `toZ`, carrying anyone on it at
+-- `speed` (negative is toward -Z). The model's Speed, StartZ and Length attributes let clients
+-- slide its arrows.
+local function treadmill(b: Builder.Builder, parent: Instance, x: number, fromZ: number, toZ: number, speed: number)
+	local model = Instance.new("Model")
+	model.Name = "Treadmill"
+	local length = math.abs(toZ - fromZ)
+	local startZ = math.min(fromZ, toZ)
+	local middle = Vector3.new(x, 0, startZ + length / 2)
+	local belt = b:block(Vector3.new(TREADMILL_WIDTH, 0.4, length), middle + Vector3.new(0, 0.2, 0), BELT, "Belt", model)
+	-- An anchored part with a velocity carries whatever stands on it, like a conveyor.
+	belt.AssemblyLinearVelocity = Vector3.new(0, 0, speed)
+	for _, side in { -1, 1 } do
+		local rail = b:block(Vector3.new(0.5, 0.6, length), middle + Vector3.new(side * (TREADMILL_WIDTH / 2 + 0.25), 0.3, 0), EDGE, "Rail", model)
+		rail.Material = Enum.Material.Neon
+	end
+	local way = math.sign(speed)
+	for along = 0, length - 1, ARROW_EVERY do
+		arrow(b, model, Vector3.new(x, 0.46, startZ + along), way, along)
+	end
+	model:SetAttribute("Speed", speed)
+	model:SetAttribute("StartZ", startZ)
+	model:SetAttribute("Length", length)
+	model.Parent = parent
 end
 
 -- A big gumball machine. Its prompt opens the Store window (clients watch for prompts with an
@@ -121,14 +153,13 @@ function Lobby.build(): Lobby
 	spawnLocation.TopSurface = Enum.SurfaceType.Smooth
 	spawnLocation.Parent = b.model
 
-	local chevrons = Instance.new("Folder")
-	chevrons.Name = "Chevrons"
-	chevrons.Parent = b.model
-	local order = 0
-	for z = FRONT_Z - 30, BACK_Z + 30, -CHEVRON_EVERY do
-		order += 1
-		chevron(b, chevrons, Vector3.new(0, 0.26, z), order)
-	end
+	-- Down the middle: a treadmill toward the far end on the left, and one back on the right.
+	local treadmills = Instance.new("Folder")
+	treadmills.Name = "Treadmills"
+	treadmills.Parent = b.model
+	local laneX = TREADMILL_WIDTH / 2 + 1
+	treadmill(b, treadmills, -laneX, FRONT_Z - 26, BACK_Z + 26, -TREADMILL_SPEED)
+	treadmill(b, treadmills, laneX, FRONT_Z - 26, BACK_Z + 26, TREADMILL_SPEED)
 
 	local stations = {}
 	for _, z in STATION_ZS do
@@ -145,9 +176,9 @@ function Lobby.build(): Lobby
 
 	-- A statue of every brainrot ball at the far end, facing the spawn.
 	local count = #Brainrots.list
-	local statueZ = BACK_Z + 14
+	local statueZ = BACK_Z + 8 -- behind the last stations
 	for index, brainrot in Brainrots.list do
-		local x = (index - (count + 1) / 2) * 9 -- close together, so all 12 fit between the stations
+		local x = (index - (count + 1) / 2) * 8 -- close together, so they all fit
 		local pedestalTop = 3
 		b:block(Vector3.new(7, pedestalTop, 7), Vector3.new(x, pedestalTop / 2, statueZ), PEDESTAL, "Pedestal")
 		local statue = Looks.build(brainrot.id, 1)

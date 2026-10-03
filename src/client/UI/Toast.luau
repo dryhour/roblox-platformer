@@ -2,7 +2,8 @@ local TweenService = game:GetService("TweenService")
 
 local Widgets = require(script.Parent.Widgets)
 
--- A short message near the top of the screen, like "Not enough coins", that fades away.
+-- A short message a third of the way down the screen (clear of the corner cards and titles),
+-- like "Not enough coins", that fades away.
 local Toast = {}
 
 local SHOW_FOR = 2
@@ -13,8 +14,8 @@ local shownAt = 0
 function Toast.attach(gui: ScreenGui)
 	label = Widgets.title("", 28, {
 		Name = "Toast",
-		AnchorPoint = Vector2.new(0.5, 0),
-		Position = UDim2.new(0.5, 0, 0, 90),
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.32),
 		Size = UDim2.fromOffset(600, 40),
 		AutomaticSize = Enum.AutomaticSize.None,
 		TextColor3 = Widgets.GOLD,
@@ -22,7 +23,7 @@ function Toast.attach(gui: ScreenGui)
 		ZIndex = 50,
 		Parent = gui,
 	})
-	Widgets.fit(label :: TextLabel)
+	Widgets.fit(label :: TextLabel, 600, 0.9)
 end
 
 function Toast.show(text: string)

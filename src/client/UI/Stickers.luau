@@ -6,9 +6,10 @@ local MyMatch = require(script.Parent.Parent.MyMatch)
 local Profile = require(script.Parent.Parent.Profile)
 local Widgets = require(script.Parent.Widgets)
 
--- Stickers, while you wait at a station or play a match: a button in the bottom right opens a
--- panel of emoji; tap one and it pops up over your head for everyone to see. The speaker turns
--- sticker sounds on and off (the same switch as Sound Effects in Settings).
+-- Stickers, while you wait at a station or watch a match (they step aside while you pick a
+-- ball or aim): a button in the bottom right opens a panel of emoji; tap one and it pops up
+-- over your head for everyone to see. The speaker turns sticker sounds on and off (the same
+-- switch as Sound Effects in Settings).
 local Stickers = {}
 
 function Stickers.new(gui: ScreenGui)
@@ -20,7 +21,7 @@ function Stickers.new(gui: ScreenGui)
 		BackgroundTransparency = 1,
 		Parent = gui,
 	})
-	Widgets.fit(root)
+	Widgets.fit(root, 380, 0.45)
 
 	local panel = Widgets.create("Frame", {
 		Size = UDim2.fromOffset(380, 340),
@@ -79,21 +80,23 @@ function Stickers.new(gui: ScreenGui)
 	local open = Widgets.create("TextButton", {
 		AnchorPoint = Vector2.new(1, 1),
 		Position = UDim2.fromScale(1, 1),
-		Size = UDim2.fromOffset(100, 100),
+		Size = UDim2.fromOffset(72, 72),
 		BackgroundColor3 = Color3.fromRGB(30, 32, 38),
 		Text = "🙂",
 		TextScaled = true,
 		Parent = root,
 	}, {
 		Widgets.corner(12),
-		Widgets.create("UIPadding", { PaddingTop = UDim.new(0, 18), PaddingBottom = UDim.new(0, 18) }),
+		Widgets.create("UIPadding", { PaddingTop = UDim.new(0, 12), PaddingBottom = UDim.new(0, 12) }),
 	})
 	open.Activated:Connect(function()
 		panel.Visible = not panel.Visible
 	end)
 
 	local function refresh()
-		root.Visible = MyMatch.state() ~= nil or MyMatch.waitingSide() ~= ""
+		local phase = MyMatch.phase()
+		local busy = phase == "Draft" or phase == "Aim"
+		root.Visible = (MyMatch.state() ~= nil or MyMatch.waitingSide() ~= "") and not busy
 		if not root.Visible then
 			panel.Visible = false
 		end

@@ -35,6 +35,14 @@ export type Profile = {
 	settings: { [string]: boolean },
 	purchases: { string }, -- recent Robux purchase ids, so none is granted twice
 	offerEndsAt: number, -- when the limited gem pack stops showing
+	tutorialDone: boolean, -- finished a first match, so the tutorial pointers stop
+	loginDay: number, -- the day the last daily reward was claimed
+	loginStreak: number, -- how many daily rewards in a row (1-7) as of loginDay
+	vouchers: number, -- free "Pick Any Card" uses of the draft's All Balls button
+	redeemedCodes: { [string]: boolean },
+	mailClaimed: { [string]: boolean },
+	dealsDay: number, -- the day dealsBought is for
+	dealsBought: { [string]: boolean },
 }
 
 -- Things that last only for this visit.
@@ -91,6 +99,14 @@ local function defaults(): Profile
 		settings = { sfx = true, shake = true, numbers = true },
 		purchases = {},
 		offerEndsAt = 0,
+		tutorialDone = false,
+		loginDay = 0,
+		loginStreak = 0,
+		vouchers = 0,
+		redeemedCodes = {},
+		mailClaimed = {},
+		dealsDay = 0,
+		dealsBought = {},
 	}
 end
 

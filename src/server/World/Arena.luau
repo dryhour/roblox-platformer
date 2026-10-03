@@ -11,8 +11,8 @@ local Builder = require(script.Parent.Builder)
 --   Walls     the four walls, each with IsArenaWall and Normal (pointing into the arena)
 --   Effects   parts that abilities create (turrets, bananas, vines...)
 --   State     a Configuration whose attributes tell clients how the match is going
--- and the attributes Center (the middle of the box) and Facing (out of the front, toward the
--- players watching).
+-- and the attributes Center (the middle of the box), Facing (out of the front, toward the
+-- players watching) and HalfWidth (from the middle to the inside of the walls).
 local Arena = {}
 
 export type Arena = {
@@ -102,6 +102,7 @@ function Arena.build(id: string, cframe: CFrame): Arena
 	local half = defaultHalf
 	local function setHalfWidth(newHalf: number)
 		half = newHalf
+		model:SetAttribute("HalfWidth", half)
 		local length = half * 2 + WALL_THICKNESS * 2
 		for _, entry in wallParts do
 			local across = entry.side:Abs()

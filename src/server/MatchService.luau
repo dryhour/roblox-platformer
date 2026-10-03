@@ -20,7 +20,9 @@ local Station = require(script.Parent.World.Station)
 --   Draft    each side picks one of 3 random balls from its collection
 --   Aim      each side aims its launch
 --   Battle   the balls fight on their own
---   Resolve  the loser loses a heart
+--   Finish   the finisher: the beaten ball bursts into energy in the winner's explosion style,
+--            which flies into the loser's avatar and blows up on them, and they lose a heart
+--   Resolve  ROUND WON / ROUND LOST
 -- Afterwards everyone gets paid (Rewards.matchFinished) and a reward roll.
 --
 -- Clients follow along through attributes. On each player: WaitingAt (an arena's name) and
@@ -28,12 +30,20 @@ local Station = require(script.Parent.World.Station)
 -- (comma-separated ids), DraftPick and AllBallsUsed during a match. On the arena's State:
 -- WaitingLeft/WaitingRight (user ids, 0 for nobody) between matches, and during one Phase (empty
 -- between matches), EndsAt (server time), Round, SuddenDeath, and for each side
--- LeftName/RightName, LeftUserId/RightUserId (0 for the bot), LeftHearts/RightHearts and
--- LeftPick/RightPick; then RoundWinner ("Left", "Right" or "Draw") and MatchWinner (a name).
+-- LeftName/RightName, LeftUserId/RightUserId (0 for the bot), LeftHearts/RightHearts,
+-- LeftPick/RightPick and LeftAvatar/RightAvatar (where each avatar's chest is, for the camera);
+-- then RoundWinner ("Left", "Right" or "Draw"), MatchWinner (a name) and MatchWinnerSide.
 local MatchService = {}
 
 local SIDES = { "Left", "Right" }
 local CHECK_EVERY = 0.25
+
+-- The finisher, in seconds.
+local SLOW_MOTION = 0.5 -- after the knockout, everything still moving goes at a fifth of the speed
+local CAMERA_SWEEP = 0.15 -- a beat before the energy flies (the camera follows it to the loser)
+local ENERGY_FLIGHT = 0.8 -- the beaten ball's energy flies into the loser
+local HEART_DELAY = 0.5 -- the lost heart shatters, then it's gone
+local CHEST = Vector3.new(0, 3, 0) -- from an avatar's feet to its chest
 
 type Competitor = {
 	side: string,
@@ -162,22 +172,36 @@ local function showHearts(character: Model?, hearts: number?)
 		return
 	end
 	if not billboard then
+		-- One heart each, named Heart1, Heart2..., so clients can shatter the one being lost.
 		billboard = Instance.new("BillboardGui")
 		billboard.Name = "MatchHearts"
-		billboard.Size = UDim2.fromScale(4.5, 1.5)
+		billboard.Size = UDim2.fromScale(1.5 * Config.HEARTS, 1.5)
 		billboard.StudsOffset = Vector3.new(0, 3.5, 0)
 		billboard.LightInfluence = 0
 		billboard.MaxDistance = 250
-		local label = Instance.new("TextLabel")
-		label.Name = "Label"
-		label.Size = UDim2.fromScale(1, 1)
-		label.BackgroundTransparency = 1
-		label.TextScaled = true
-		label.Parent = billboard
+		local layout = Instance.new("UIListLayout")
+		layout.FillDirection = Enum.FillDirection.Horizontal
+		layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+		layout.SortOrder = Enum.SortOrder.LayoutOrder
+		layout.Parent = billboard
+		for index = 1, Config.HEARTS do
+			local heart = Instance.new("TextLabel")
+			heart.Name = `Heart{index}`
+			heart.LayoutOrder = index
+			heart.Size = UDim2.fromScale(1 / Config.HEARTS, 1)
+			heart.BackgroundTransparency = 1
+			heart.Text = "❤️"
+			heart.TextScaled = true
+			heart.Parent = billboard
+		end
 		billboard.Parent = head
 	end
-	local label = billboard:FindFirstChild("Label") :: TextLabel
-	label.Text = string.rep("❤️", math.clamp(hearts, 0, Config.HEARTS))
+	for index = 1, Config.HEARTS do
+		local heart = billboard:FindFirstChild(`Heart{index}`)
+		if heart and heart:IsA("TextLabel") then
+			heart.Visible = index <= hearts
+		end
+	end
 end
 
 local function setHearts(match: Match, competitor: Competitor, hearts: number)
@@ -268,6 +292,53 @@ local function aim(match: Match, battle: Battle.Battle)
 	end)
 end
 
+-- Smoke and fire on an avatar that just got blown up, for `duration` seconds.
+local function smother(body: Model?, duration: number)
+	local root = body and body:FindFirstChild("HumanoidRootPart")
+	if not root then
+		return
+	end
+	local cloud = Instance.new("Smoke")
+	cloud.Color = Color3.fromRGB(30, 30, 30)
+	cloud.Opacity = 0.6
+	cloud.RiseVelocity = 4
+	cloud.Size = 6
+	cloud.Parent = root
+	local fire = Instance.new("Fire")
+	fire.Size = 6
+	fire.Heat = 8
+	fire.Parent = root
+	task.delay(duration, function()
+		cloud:Destroy()
+		fire:Destroy()
+	end)
+end
+
+-- The end of a round someone won: the beaten ball bursts into energy in the winner's explosion
+-- style and flies into the loser's avatar (clients' cameras lean after it during the Finish
+-- phase), it blows up on them, and they lose a heart.
+local function finisher(match: Match, battle: Battle.Battle, winner: string)
+	local state = match.station.arena.state
+	local loser = match.competitors[other(winner)]
+	state:SetAttribute("RoundWinner", winner)
+	setPhase(match, "Finish", CAMERA_SWEEP + ENERGY_FLIGHT + HEART_DELAY)
+	task.wait(CAMERA_SWEEP)
+
+	local body = bodyOf(loser)
+	local target = match.station.stands[loser.side].Position + CHEST
+	local ball = battle.balls[loser.side]
+	local brainrot = if ball then ball.def.id else ""
+	local from = battle:disperse(loser.side) or target
+	battle:effect("Finisher", from, target, match.competitors[winner].explosion, brainrot, body, ENERGY_FLIGHT)
+	task.wait(ENERGY_FLIGHT)
+
+	smother(body, HEART_DELAY + Config.RESOLVE_TIME)
+	task.wait(HEART_DELAY)
+	setHearts(match, loser, loser.hearts - 1)
+	setPhase(match, "Resolve", Config.RESOLVE_TIME)
+	task.wait(Config.RESOLVE_TIME)
+end
+
 -- Plays the match and returns the winning side.
 local function runMatch(match: Match): string
 	local state = match.station.arena.state
@@ -283,11 +354,7 @@ local function runMatch(match: Match): string
 			break
 		end
 
-		local battle = Battle.new(
-			match.station.arena,
-			{ Left = left.pick :: string, Right = right.pick :: string },
-			{ Left = left.explosion, Right = right.explosion }
-		)
+		local battle = Battle.new(match.station.arena, { Left = left.pick :: string, Right = right.pick :: string })
 		match.battle = battle
 		aim(match, battle)
 
@@ -305,14 +372,19 @@ local function runMatch(match: Match): string
 		end
 
 		local winner = battle:winner()
-		battle.running = false
-		if winner then
-			local loser = match.competitors[other(winner)]
-			setHearts(match, loser, loser.hearts - 1)
+		-- A knockout gets a moment of slow motion before everything stops.
+		if #battle:aliveSides() < 2 then
+			battle:slowMotion(SLOW_MOTION)
+			task.wait(SLOW_MOTION)
 		end
-		state:SetAttribute("RoundWinner", winner or "Draw")
-		setPhase(match, "Resolve", Config.RESOLVE_TIME)
-		task.wait(Config.RESOLVE_TIME)
+		battle:freeze()
+		if winner then
+			finisher(match, battle, winner)
+		else
+			state:SetAttribute("RoundWinner", "Draw")
+			setPhase(match, "Resolve", Config.RESOLVE_TIME)
+			task.wait(Config.RESOLVE_TIME)
+		end
 		battle:destroy()
 		match.battle = nil
 
@@ -325,7 +397,10 @@ local function runMatch(match: Match): string
 	local gone = quitter(match)
 	local winnerSide = if gone then other(gone.side) elseif left.hearts > 0 then "Left" else "Right"
 	state:SetAttribute("MatchWinner", match.competitors[winnerSide].name)
+	state:SetAttribute("MatchWinnerSide", winnerSide)
 	setPhase(match, "Over", Config.MATCH_OVER_TIME)
+	-- The camera pans to the winner, who gets a crown.
+	Remotes.Effect:FireAllClients("Crown", match.station.stands[winnerSide].Position + CHEST)
 	task.wait(Config.MATCH_OVER_TIME)
 	return winnerSide
 end
@@ -428,8 +503,11 @@ local function startMatch(station: Station.Station, waiting: Seats)
 		end)
 	end
 
-	for _, name in { "RoundWinner", "MatchWinner", "LeftPick", "RightPick" } do
+	for _, name in { "RoundWinner", "MatchWinner", "MatchWinnerSide", "LeftPick", "RightPick" } do
 		state:SetAttribute(name, "")
+	end
+	for _, side in SIDES do
+		state:SetAttribute(`{side}Avatar`, station.stands[side].Position + CHEST)
 	end
 	state:SetAttribute("SuddenDeath", false)
 	state:SetAttribute("WaitingLeft", 0)
@@ -530,7 +608,8 @@ function MatchService.play(player: Player): boolean
 	return MatchService.join(player, empty[rng:NextInteger(1, #empty)], "Left")
 end
 
--- Swaps your draft options for 3 from every ball: free once a day, or every round with the pass.
+-- Swaps your draft options for 3 from every ball: free once a day, then with a "Pick Any Card"
+-- voucher, or every round with the pass.
 function MatchService.allBalls(player: Player): boolean
 	local match = matchOf[player]
 	local competitor = match and competitorOf(match, player)
@@ -543,12 +622,17 @@ function MatchService.allBalls(player: Player): boolean
 	end
 	if not Shop.ownsAllBalls(player) then
 		local today = Economy.day(workspace:GetServerTimeNow())
-		if profile.freeAllBallsDay == today then
+		if profile.freeAllBallsDay ~= today then
+			Data.update(player, function(fresh)
+				fresh.freeAllBallsDay = today
+			end)
+		elseif profile.vouchers > 0 then
+			Data.update(player, function(fresh)
+				fresh.vouchers -= 1
+			end)
+		else
 			return false
 		end
-		Data.update(player, function(fresh)
-			fresh.freeAllBallsDay = today
-		end)
 	end
 	competitor.options = Brainrots.roll(3, rng)
 	player:SetAttribute("AllBallsUsed", true)

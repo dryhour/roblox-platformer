@@ -18,6 +18,8 @@ export type PartSpec = {
 	color: Color3,
 	material: Enum.Material?,
 	spin: number?, -- radians per second around the part's own Z axis, e.g. a propeller
+	role: string?, -- "eye" or "pupil" (the face reacts to health), or "calm" / "rage" (shown before
+	-- and during a rage)
 }
 
 export type Stats = {
@@ -57,11 +59,15 @@ end
 -- Two eyes looking forward, `spread` studs apart, with their whites centered at depth z.
 local function eyes(spread: number, y: number, z: number, size: number): { PartSpec }
 	local half = spread / 2
+	local function part(spec: PartSpec, role: string): PartSpec
+		spec.role = role
+		return spec
+	end
 	return {
-		ball(size, Vector3.new(-half, y, z), WHITE),
-		ball(size, Vector3.new(half, y, z), WHITE),
-		ball(size * 0.5, Vector3.new(-half, y, z - size * 0.4), BLACK),
-		ball(size * 0.5, Vector3.new(half, y, z - size * 0.4), BLACK),
+		part(ball(size, Vector3.new(-half, y, z), WHITE), "eye"),
+		part(ball(size, Vector3.new(half, y, z), WHITE), "eye"),
+		part(ball(size * 0.5, Vector3.new(-half, y, z - size * 0.4), BLACK), "pupil"),
+		part(ball(size * 0.5, Vector3.new(half, y, z - size * 0.4), BLACK), "pupil"),
 	}
 end
 
@@ -92,6 +98,17 @@ local SHRIMP_DARK = Color3.fromRGB(240, 105, 75)
 local FROG = Color3.fromRGB(110, 190, 70)
 local BALLET = Color3.fromRGB(255, 170, 205)
 local SATURN = Color3.fromRGB(255, 200, 90)
+local WALLPAPER = Color3.fromRGB(230, 205, 110)
+local MOLD = Color3.fromRGB(45, 60, 35)
+local SMILEY = Color3.fromRGB(255, 220, 40)
+local SIGMA = Color3.fromRGB(150, 165, 185)
+local DARK_RED = Color3.fromRGB(120, 10, 15)
+
+-- A part that's only shown in one mood (see the "calm" and "rage" roles).
+local function mood(role: string, spec: PartSpec): PartSpec
+	spec.role = role
+	return spec
+end
 
 local list: { Brainrot } = {
 	{
@@ -425,6 +442,84 @@ local list: { Brainrot } = {
 			},
 		}),
 	},
+	{
+		id = "BackroomsMold",
+		name = "Backrooms Mold",
+		emoji = "🟨",
+		rarity = "Epic",
+		stats = { health = 1350, mass = 16, speed = 21, impactPower = 1 },
+		skill = "Tape",
+		skillIcon = "🚧",
+		skillHint = "Hazard tape",
+		description = "Wall bounces string hazard tape.",
+		color = WALLPAPER,
+		word = "NOCLIP!",
+		look = join({ ball(SIZE, Vector3.zero, WALLPAPER) }, eyes(2.2, 0.9, -3.1, 1.3), {
+			-- Patches of black mold
+			ball(2.2, Vector3.new(2.3, 1.9, 1.3), MOLD),
+			ball(1.8, Vector3.new(-2.6, -1.1, 1.5), MOLD),
+			ball(1.4, Vector3.new(0.6, 2.9, 1.7), MOLD),
+			ball(1.2, Vector3.new(-1.8, 2.2, -1.9), MOLD),
+			-- A strip of hazard tape across its mouth
+			block(Vector3.new(4.6, 0.6, 0.4), Vector3.new(0, -1.3, -3.2), Color3.fromRGB(250, 210, 30), Vector3.new(0, 0, 8)),
+			block(Vector3.new(0.5, 0.62, 0.42), Vector3.new(-1.2, -1.15, -3.2), BLACK, Vector3.new(0, 0, 8)),
+			block(Vector3.new(0.5, 0.62, 0.42), Vector3.new(0, -1.3, -3.21), BLACK, Vector3.new(0, 0, 8)),
+			block(Vector3.new(0.5, 0.62, 0.42), Vector3.new(1.2, -1.45, -3.2), BLACK, Vector3.new(0, 0, 8)),
+		}),
+	},
+	{
+		id = "SigmaMewing",
+		name = "Sigma Mewing",
+		emoji = "🗿",
+		rarity = "Legendary",
+		stats = { health = 1500, mass = 22, speed = 20, impactPower = 1.05 },
+		skill = "Mewing",
+		skillIcon = "🗿",
+		skillHint = "Charge dash",
+		description = "Charges up, then dashes at the enemy.",
+		color = Color3.fromRGB(110, 210, 240),
+		word = "MEW!",
+		look = join({ ball(SIZE, Vector3.zero, SIGMA) }, eyes(2.2, 0.9, -3.05, 1.1), {
+			-- Flat, serious brows, a sharp jawline and slicked hair
+			block(Vector3.new(1.4, 0.3, 0.3), Vector3.new(-1.1, 1.75, -3.05), BLACK),
+			block(Vector3.new(1.4, 0.3, 0.3), Vector3.new(1.1, 1.75, -3.05), BLACK),
+			block(Vector3.new(3, 0.45, 0.5), Vector3.new(-1.3, -2.3, -2.6), Color3.fromRGB(110, 120, 140), Vector3.new(0, 0, -30)),
+			block(Vector3.new(3, 0.45, 0.5), Vector3.new(1.3, -2.3, -2.6), Color3.fromRGB(110, 120, 140), Vector3.new(0, 0, 30)),
+			block(Vector3.new(1.4, 0.25, 0.3), Vector3.new(0, -1.1, -3.3), BLACK),
+			block(Vector3.new(5.4, 1, 4.6), Vector3.new(0, 3.3, 0.3), Color3.fromRGB(40, 35, 30), Vector3.new(-10, 0, 0)),
+		}),
+	},
+	{
+		id = "PureBrainrotSmile",
+		name = "Pure Brainrot Smile",
+		emoji = "🙂",
+		rarity = "Mythic",
+		stats = { health = 1050, mass = 12, speed = 24, impactPower = 1.15 },
+		skill = "Smile",
+		skillIcon = "😈",
+		skillHint = "Rage mode",
+		description = "Speeds up, then rages when hurt.",
+		color = SMILEY,
+		word = "HEHE!",
+		look = join({ ball(SIZE, Vector3.zero, SMILEY) }, {
+			-- Calm: two tall eyes and a simple smile
+			mood("calm", block(Vector3.new(0.7, 1.4, 0.4), Vector3.new(-1.1, 1, -3.3), BLACK)),
+			mood("calm", block(Vector3.new(0.7, 1.4, 0.4), Vector3.new(1.1, 1, -3.3), BLACK)),
+			mood("calm", block(Vector3.new(0.9, 0.35, 0.3), Vector3.new(-1.8, -0.6, -2.85), BLACK, Vector3.new(0, 0, -35))),
+			mood("calm", block(Vector3.new(0.9, 0.35, 0.3), Vector3.new(-1, -1.15, -3.15), BLACK, Vector3.new(0, 0, -18))),
+			mood("calm", block(Vector3.new(0.9, 0.35, 0.3), Vector3.new(0, -1.35, -3.25), BLACK)),
+			mood("calm", block(Vector3.new(0.9, 0.35, 0.3), Vector3.new(1, -1.15, -3.15), BLACK, Vector3.new(0, 0, 18))),
+			mood("calm", block(Vector3.new(0.9, 0.35, 0.3), Vector3.new(1.8, -0.6, -2.85), BLACK, Vector3.new(0, 0, 35))),
+			-- Rage: glowing red eyes, angry brows and a huge toothy grin
+			mood("rage", { shape = "Ball", size = Vector3.one * 0.9, at = Vector3.new(-1.1, 1, -3.3), color = Color3.fromRGB(255, 30, 30), material = Enum.Material.Neon }),
+			mood("rage", { shape = "Ball", size = Vector3.one * 0.9, at = Vector3.new(1.1, 1, -3.3), color = Color3.fromRGB(255, 30, 30), material = Enum.Material.Neon }),
+			mood("rage", block(Vector3.new(1.5, 0.35, 0.3), Vector3.new(-1.1, 1.95, -3.05), BLACK, Vector3.new(0, 0, -25))),
+			mood("rage", block(Vector3.new(1.5, 0.35, 0.3), Vector3.new(1.1, 1.95, -3.05), BLACK, Vector3.new(0, 0, 25))),
+			mood("rage", block(Vector3.new(4.4, 1.5, 0.3), Vector3.new(0, -1.1, -3.2), DARK_RED)),
+			mood("rage", block(Vector3.new(4.2, 0.4, 0.34), Vector3.new(0, -0.55, -3.24), WHITE)),
+			mood("rage", block(Vector3.new(4.2, 0.4, 0.34), Vector3.new(0, -1.65, -3.24), WHITE)),
+		}),
+	},
 }
 
 local byId: { [string]: Brainrot } = {}
@@ -451,11 +546,15 @@ function Brainrots.get(id: unknown): Brainrot
 end
 
 -- `count` different brainrots, picked at random with rarer ones less likely. `from` limits the
--- pick to those ids (e.g. the balls a player owns).
-function Brainrots.roll(count: number, rng: Random, from: { string }?): { string }
+-- pick to those ids (e.g. the balls a player owns); `weights` (rarity -> weight) replaces the
+-- usual odds, e.g. for the Gem Ball Machine.
+function Brainrots.roll(count: number, rng: Random, from: { string }?, weights: { [string]: number }?): { string }
+	local function weightOf(brainrot: Brainrot): number
+		return if weights then weights[brainrot.rarity] or 0 else Config.RARITIES[brainrot.rarity].weight
+	end
 	local pool = {}
 	for _, brainrot in list do
-		if not from or table.find(from, brainrot.id) then
+		if (not from or table.find(from, brainrot.id)) and weightOf(brainrot) > 0 then
 			table.insert(pool, brainrot)
 		end
 	end
@@ -463,11 +562,11 @@ function Brainrots.roll(count: number, rng: Random, from: { string }?): { string
 	while #picked < count and #pool > 0 do
 		local total = 0
 		for _, brainrot in pool do
-			total += Config.RARITIES[brainrot.rarity].weight
+			total += weightOf(brainrot)
 		end
 		local roll = rng:NextNumber() * total
 		for index, brainrot in pool do
-			roll -= Config.RARITIES[brainrot.rarity].weight
+			roll -= weightOf(brainrot)
 			if roll <= 0 or index == #pool then
 				table.insert(picked, brainrot.id)
 				table.remove(pool, index)

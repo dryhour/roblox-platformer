@@ -1,4 +1,5 @@
 local Lighting = game:GetService("Lighting")
+local TweenService = game:GetService("TweenService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local SocialService = game:GetService("SocialService")
@@ -6,6 +7,7 @@ local SocialService = game:GetService("SocialService")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Brainrots = require(Shared:WaitForChild("Brainrots"))
 local Config = require(Shared:WaitForChild("Config"))
+local Economy = require(Shared:WaitForChild("Economy"))
 local Text = require(Shared:WaitForChild("Text"))
 local Action = require(script.Parent.Parent.Action)
 local AimController = require(script.Parent.Parent.AimController)
@@ -17,20 +19,29 @@ local Widgets = require(script.Parent.Widgets)
 -- The HUD while you wait at a station or play a match, laid out like the reference game: each
 -- side's card in its top corner (face, name, hearts, and the ball it's playing). While waiting,
 -- the empty side reads "Waiting For Opponent", with Invite and Leave buttons at the bottom.
--- In a match: the phase timer at the top, a pointing hand while you aim, the round result and
--- match winner, and a red tint in sudden death.
+-- In a match: "ADJUST YOUR AIM" with a countdown and a yellow Lock Aim button while you aim
+-- (then "Waiting For Opponent" until both are locked in), the battle timer, ROUND WON / ROUND
+-- LOST with a trophy, the match result with its coin prize (and a shower of coins for the
+-- winner), and a red tint in sudden death.
 local Hud = {}
 
-local PHASE_ICONS = { Aim = "🎯", Battle = "⚔️" } -- the draft shows its own countdown
+local PHASE_ICONS = { Battle = "⚔️" } -- the draft and aim show their own countdowns
+local LOCK_YELLOW = Color3.fromRGB(250, 195, 30)
 local SUDDEN_DEATH_TINT = Color3.fromRGB(255, 170, 170)
 local HEADSHOT = "rbxthumb://type=AvatarHeadShot&id=%d&w=150&h=150"
-local FACE_SIZE = 96
+local FACE_SIZE = 84
+local CARD_WIDTH = 280
+-- Each corner card takes at most this much of the screen's width, and the titles at the top
+-- center at most TOP_SHARE, so they never meet.
+local CARD_SHARE = 0.2
+local TOP_SHARE = 0.5
 local FACE_BACK = Color3.fromRGB(25, 30, 58)
 local PLACEHOLDER = Color3.fromRGB(250, 215, 40)
 
 local CENTER = Enum.TextXAlignment.Center
 
 type Card = {
+	root: Frame,
 	face: ImageLabel,
 	faceText: TextLabel,
 	name: TextLabel,
@@ -67,11 +78,11 @@ local function makeCard(parent: GuiObject, side: string): Card
 		Name = `{side}Card`,
 		AnchorPoint = Vector2.new(if isLeft then 0 else 1, 0),
 		Position = UDim2.new(if isLeft then 0 else 1, if isLeft then 16 else -16, 0, 12),
-		Size = UDim2.fromOffset(420, 250),
+		Size = UDim2.fromOffset(CARD_WIDTH, 220),
 		BackgroundTransparency = 1,
 		Parent = parent,
 	})
-	Widgets.fit(root)
+	Widgets.fit(root, CARD_WIDTH + 16, CARD_SHARE)
 
 	-- Places a child `x` pixels in from this card's outer edge.
 	local function slot(x: number, y: number, width: number, height: number): { [string]: any }
@@ -96,7 +107,7 @@ local function makeCard(parent: GuiObject, side: string): Card
 		Parent = face,
 	})
 
-	local nameProps = slot(FACE_SIZE + 10, 10, 300, 34)
+	local nameProps = slot(FACE_SIZE + 10, 8, CARD_WIDTH - FACE_SIZE - 10, 30)
 	nameProps.Parent = root
 	nameProps.TextXAlignment = align
 	nameProps.TextColor3 = color
@@ -104,22 +115,22 @@ local function makeCard(parent: GuiObject, side: string): Card
 	nameProps.AutomaticSize = Enum.AutomaticSize.None
 	local name = Widgets.title("", 26, nameProps)
 
-	local heartsLabel = Widgets.label("", 34, slot(FACE_SIZE + 8, 44, 200, 44))
+	local heartsLabel = Widgets.label("", 30, slot(FACE_SIZE + 8, 40, CARD_WIDTH - FACE_SIZE - 8, 38))
 	heartsLabel.AutomaticSize = Enum.AutomaticSize.None
 	heartsLabel.TextXAlignment = align
 	heartsLabel.Parent = root
 
-	local ballName = Widgets.body("", 26, slot(0, FACE_SIZE + 6, 260, 32))
+	local ballName = Widgets.body("", 22, slot(0, FACE_SIZE + 6, CARD_WIDTH, 28))
 	ballName.AutomaticSize = Enum.AutomaticSize.None
 	ballName.TextXAlignment = align
 	ballName.TextStrokeTransparency = 0
 	ballName.Parent = root
 
-	local ballProps = slot(10, FACE_SIZE + 42, 84, 84)
+	local ballProps = slot(8, FACE_SIZE + 36, 68, 68)
 	ballProps.Parent = root
 	local ball = BallIcon.new(ballProps)
 
-	return { face = face, faceText = faceText, name = name, hearts = heartsLabel, ballName = ballName, ball = ball }
+	return { root = root, face = face, faceText = faceText, name = name, hearts = heartsLabel, ballName = ballName, ball = ball }
 end
 
 local function setCard(card: Card, info: CardInfo)
@@ -152,7 +163,7 @@ function Hud.new(gui: ScreenGui)
 		Size = UDim2.fromOffset(260, 0),
 		Parent = root,
 	})
-	Widgets.fit(timer)
+	Widgets.fit(timer, 260, TOP_SHARE)
 
 	local banner = Widgets.stack({
 		AnchorPoint = Vector2.new(0.5, 0.5),
@@ -160,28 +171,73 @@ function Hud.new(gui: ScreenGui)
 		Size = UDim2.fromOffset(700, 0),
 		Parent = root,
 	}, 4)
-	Widgets.fit(banner)
+	Widgets.fit(banner, 700, 0.85)
 	local bannerIcon = bigLabel(120, { LayoutOrder = 1, TextStrokeTransparency = 1, Parent = banner })
-	local bannerText = bigLabel(44, { LayoutOrder = 2, TextColor3 = Widgets.ACCENT, Parent = banner })
-
-	local hint = bigLabel(64, {
-		AnchorPoint = Vector2.new(0.5, 1),
-		Position = UDim2.new(0.5, 0, 1, -30),
-		Size = UDim2.fromOffset(120, 0),
-		TextStrokeTransparency = 1,
-		Parent = root,
+	local bannerText = Widgets.title("", 48, { LayoutOrder = 2, TextColor3 = Widgets.ACCENT, Parent = banner })
+	-- The coin prize, under the result when you win the match.
+	local prize = Widgets.create("Frame", {
+		LayoutOrder = 3,
+		Size = UDim2.fromOffset(220, 56),
+		BackgroundTransparency = 1,
+		Parent = banner,
 	})
-	Widgets.fit(hint)
+	local bannerLayout = banner:FindFirstChildOfClass("UIListLayout") :: UIListLayout
+	bannerLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+	Widgets.coin(48, { Position = UDim2.fromOffset(20, 4), Parent = prize })
+	Widgets.title(`+{Economy.WIN_COINS}`, 44, {
+		Position = UDim2.fromOffset(80, 0),
+		Size = UDim2.fromOffset(140, 56),
+		AutomaticSize = Enum.AutomaticSize.None,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		TextColor3 = Widgets.GOLD,
+		Parent = prize,
+	})
 
-	-- Invite and Leave, while waiting.
-	local waitButtons = Widgets.create("Frame", {
+	-- Lock Aim, then Waiting For Opponent.
+	local aimBar = Widgets.create("Frame", {
 		AnchorPoint = Vector2.new(0.5, 1),
 		Position = UDim2.new(0.5, 0, 1, -24),
-		Size = UDim2.fromOffset(500, 210),
+		Size = UDim2.fromOffset(420, 90),
 		BackgroundTransparency = 1,
 		Parent = root,
 	})
-	Widgets.fit(waitButtons)
+	Widgets.fit(aimBar, 420, 0.6)
+	local aimTitle = Widgets.title("", 40, {
+		AnchorPoint = Vector2.new(0.5, 0),
+		Position = UDim2.new(0.5, 0, 0, 10),
+		Size = UDim2.fromOffset(560, 46),
+		AutomaticSize = Enum.AutomaticSize.None,
+		TextScaled = true,
+		Parent = root,
+	})
+	Widgets.fit(aimTitle, 560, TOP_SHARE)
+	local lockButton = Widgets.bigButton("Lock Aim", LOCK_YELLOW, function()
+		AimController.lock()
+	end, {
+		AnchorPoint = Vector2.new(0.5, 1),
+		Position = UDim2.fromScale(0.5, 1),
+		Size = UDim2.fromOffset(300, 72),
+		TextSize = 38,
+		Parent = aimBar,
+	})
+	local lockedText = Widgets.title("Waiting For Opponent", 30, {
+		AnchorPoint = Vector2.new(0.5, 1),
+		Position = UDim2.fromScale(0.5, 1),
+		Size = UDim2.new(1, 0, 0, 50),
+		AutomaticSize = Enum.AutomaticSize.None,
+		TextColor3 = Widgets.GREEN,
+		Parent = aimBar,
+	})
+
+	-- Invite and Leave, side by side, while waiting.
+	local waitButtons = Widgets.create("Frame", {
+		AnchorPoint = Vector2.new(0.5, 1),
+		Position = UDim2.new(0.5, 0, 1, -24),
+		Size = UDim2.fromOffset(470, 68),
+		BackgroundTransparency = 1,
+		Parent = root,
+	})
+	Widgets.fit(waitButtons, 470, 0.6)
 	Widgets.bigButton("Invite", Widgets.BLUE, function()
 		task.spawn(function()
 			local ok, canInvite = pcall(SocialService.CanSendGameInviteAsync, SocialService, player)
@@ -190,19 +246,17 @@ function Hud.new(gui: ScreenGui)
 			end
 		end)
 	end, {
-		AnchorPoint = Vector2.new(0.5, 0),
-		Position = UDim2.fromScale(0.5, 0),
-		Size = UDim2.fromOffset(330, 86),
-		TextSize = 54,
+		Size = UDim2.fromOffset(225, 68),
+		TextSize = 34,
 		Parent = waitButtons,
 	})
 	Widgets.bigButton("Leave", Widgets.RED, function()
 		Action.send("Leave")
 	end, {
-		AnchorPoint = Vector2.new(0.5, 1),
-		Position = UDim2.fromScale(0.5, 1),
-		Size = UDim2.fromOffset(500, 104),
-		TextSize = 64,
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.fromScale(1, 0),
+		Size = UDim2.fromOffset(225, 68),
+		TextSize = 34,
 		Parent = waitButtons,
 	})
 
@@ -213,6 +267,27 @@ function Hud.new(gui: ScreenGui)
 	tint.Parent = Lighting
 
 	local lastBeep = 0
+	local showered = false
+
+	-- Coins rain down the screen for the match winner.
+	local function coinShower()
+		for index = 1, 40 do
+			local coin = Widgets.coin(math.random(28, 48), {
+				AnchorPoint = Vector2.new(0.5, 0.5),
+				Position = UDim2.new(math.random(), 0, 0, -60),
+				Rotation = math.random(0, 360),
+				ZIndex = 5,
+				Parent = root,
+			})
+			local fall = TweenInfo.new(math.random(120, 200) / 100, Enum.EasingStyle.Quad, Enum.EasingDirection.In, 0, false, index * 0.03)
+			TweenService:Create(coin, fall, {
+				Position = UDim2.new(coin.Position.X.Scale + (math.random() - 0.5) * 0.2, 0, 1, 80),
+				Rotation = coin.Rotation + math.random(-360, 360),
+			}):Play()
+			task.delay(2.5, coin.Destroy, coin)
+		end
+		Sounds.play("Reward")
+	end
 
 	local function refresh()
 		local state = MyMatch.state()
@@ -221,6 +296,11 @@ function Hud.new(gui: ScreenGui)
 		tint.Enabled = state ~= nil and state:GetAttribute("SuddenDeath") == true
 		waitButtons.Visible = waitingSide ~= ""
 
+		-- The draft covers the screen, so the cards step aside for it.
+		local drafting = MyMatch.phase() == "Draft"
+		for _, card in cards do
+			card.root.Visible = not drafting
+		end
 		if state then
 			for side, card in cards do
 				setCard(card, {
@@ -233,13 +313,26 @@ function Hud.new(gui: ScreenGui)
 
 			local mySide = MyMatch.side()
 			local phase = MyMatch.phase()
+			local wonMatch = false
 			if phase == "Resolve" then
 				local winner = state:GetAttribute("RoundWinner")
 				bannerIcon.Text = if winner == mySide then "🏆" elseif winner == "Draw" then "🤝" else "💔"
 				bannerText.Text = if winner == mySide then "ROUND WON" elseif winner == "Draw" then "DRAW" else "ROUND LOST"
+				bannerText.TextColor3 = if winner == mySide then Widgets.GOLD else Widgets.TEXT
 			elseif phase == "Over" then
-				bannerIcon.Text = "👑"
-				bannerText.Text = `{state:GetAttribute("MatchWinner") or ""} WINS`
+				local myHearts = tonumber(state:GetAttribute(`{mySide}Hearts`)) or 0
+				local winnerName = tostring(state:GetAttribute("MatchWinner") or "")
+				wonMatch = myHearts > 0 and winnerName == (state:GetAttribute(`{mySide}Name`) or "")
+				bannerIcon.Text = if wonMatch then "🏆" else "👑"
+				bannerText.Text = `{winnerName} WINS`
+				bannerText.TextColor3 = Widgets.GOLD
+			end
+			prize.Visible = wonMatch
+			if wonMatch and not showered then
+				showered = true
+				coinShower()
+			elseif phase ~= "Over" then
+				showered = false
 			end
 			banner.Visible = phase == "Resolve" or phase == "Over"
 		elseif waitingSide ~= "" then
@@ -283,13 +376,16 @@ function Hud.new(gui: ScreenGui)
 			lastBeep = 0
 		end
 
-		-- A bobbing hand while you aim, a check once you've locked in.
-		hint.Visible = phase == "Aim"
-		hint.Text = if AimController.isLocked() then "✅" else "👆"
-		hint.Position = UDim2.new(0.5, 0, 1, -30 - math.abs(math.sin(os.clock() * 4)) * 12)
+		local locked = AimController.isLocked()
+		aimBar.Visible = phase == "Aim"
+		aimTitle.Visible = phase == "Aim"
+		aimTitle.Text = `ADJUST YOUR AIM - {math.max(0, math.ceil(left))}`
+		aimTitle.TextColor3 = if left <= 3 then Widgets.BAD else Widgets.TEXT
+		lockButton.Visible = not locked
+		lockedText.Visible = locked
 	end
 
-	return { refresh = refresh, tick = tick }
+	return { refresh = refresh, tick = tick, lockButton = lockButton }
 end
 
 return Hud

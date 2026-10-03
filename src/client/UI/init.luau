@@ -2,11 +2,15 @@ local Players = game:GetService("Players")
 local ProximityPromptService = game:GetService("ProximityPromptService")
 local RunService = game:GetService("RunService")
 
+local Codes = require(script.Codes)
+local Daily = require(script.Daily)
 local Draft = require(script.Draft)
+local Fly = require(script.Fly)
 local Gifts = require(script.Gifts)
 local Hud = require(script.Hud)
 local Inventory = require(script.Inventory)
 local LobbyHud = require(script.LobbyHud)
+local Mail = require(script.Mail)
 local ProfileWindow = require(script.ProfileWindow)
 local RewardPopups = require(script.RewardPopups)
 local Settings = require(script.Settings)
@@ -14,11 +18,13 @@ local Stickers = require(script.Stickers)
 local Store = require(script.Store)
 local Toast = require(script.Toast)
 local Trade = require(script.Trade)
+local Tutorial = require(script.Tutorial)
+local Updates = require(script.Updates)
 local Widgets = require(script.Widgets)
 local Windows = require(script.Windows)
 
 -- All the on-screen UI: the lobby HUD and its windows, the waiting and match HUD, the draft,
--- stickers, trading, and reward popups.
+-- stickers, trading, reward popups, and the first-time tutorial.
 local UI = {}
 
 -- The UI is laid out for a screen this tall (in pixels) and scales to fit others.
@@ -30,6 +36,7 @@ local REFRESH_EVERY = 0.1
 function UI.start()
 	local player = Players.LocalPlayer
 
+	Fly.start()
 	local gui = Instance.new("ScreenGui")
 	gui.Name = "GameUI"
 	gui.ResetOnSpawn = false
@@ -38,24 +45,37 @@ function UI.start()
 
 	local camera = workspace.CurrentCamera
 	local function fit()
-		Widgets.setFitScale(math.clamp(camera.ViewportSize.Y / DESIGN_HEIGHT, MIN_SCALE, MAX_SCALE))
+		Widgets.setFitScale(math.clamp(camera.ViewportSize.Y / DESIGN_HEIGHT, MIN_SCALE, MAX_SCALE), camera.ViewportSize.X)
 	end
 	camera:GetPropertyChangedSignal("ViewportSize"):Connect(fit)
 	fit()
 
 	-- Later screens draw on top of earlier ones.
+	local lobbyHud = LobbyHud.new(gui)
+	local hud = Hud.new(gui)
+	local draft = Draft.new(gui)
 	local screens = {
-		LobbyHud.new(gui),
-		Hud.new(gui),
+		lobbyHud,
+		hud,
 		Stickers.new(gui),
-		Draft.new(gui),
+		draft,
 		Store.new(gui),
 		Inventory.new(gui),
 		Gifts.new(gui),
 		Settings.new(gui),
 		ProfileWindow.new(gui),
+		Daily.new(gui),
+		Codes.new(gui),
+		Mail.new(gui),
+		Updates.new(gui),
 		Trade.new(gui),
 		RewardPopups.new(gui),
+		Tutorial.new(gui, {
+			play = lobbyHud.play,
+			lockButton = hud.lockButton,
+			claimable = lobbyHud.claimable,
+			cardToPick = draft.cardToPick,
+		}),
 	}
 	Toast.attach(gui)
 

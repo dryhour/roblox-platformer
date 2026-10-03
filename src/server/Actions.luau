@@ -49,10 +49,22 @@ end
 handlers.ClaimGift = function(player, index)
 	return Rewards.claimGift(player, index)
 end
+handlers.ClaimLogin = function(player)
+	return Rewards.claimLogin(player)
+end
+handlers.ClaimMail = function(player, id)
+	return Rewards.claimMail(player, id)
+end
+handlers.Redeem = function(player, code)
+	return Shop.redeem(player, code)
+end
 
 -- Store and inventory
-handlers.Roll = function(player, machineId)
-	return Shop.roll(player, machineId)
+handlers.Roll = function(player, machineId, count)
+	return Shop.roll(player, machineId, count)
+end
+handlers.BuyDeal = function(player, dealId)
+	return Shop.buyDeal(player, dealId)
 end
 handlers.Fuse = function(player, id)
 	return Shop.fuse(player, id)

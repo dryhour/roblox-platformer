@@ -6,22 +6,39 @@ local Profile = require(script.Parent.Parent.Profile)
 local Widgets = require(script.Parent.Widgets)
 local Windows = require(script.Parent.Windows)
 
--- Gifts for time played this visit: each opens after so many minutes, shown as a countdown,
--- then Claim.
+-- Online Rewards, for time played this visit: a bar fills up as you play, and each gift opens
+-- after so many minutes (shown as a countdown), then Claim.
 local Gifts = {}
 
 type Tile = { button: TextButton, timer: TextLabel }
 
 function Gifts.new(gui: ScreenGui)
-	local root, content = Widgets.window(gui, "Gifts", Vector2.new(660, 520), function()
+	local root, outer = Widgets.window(gui, "Online Rewards", Vector2.new(1100, 420), function()
 		Windows.close("Gifts")
 	end)
-	Widgets.create("UIGridLayout", {
-		CellSize = UDim2.fromOffset(196, 190),
-		CellPadding = UDim2.fromOffset(16, 16),
-		HorizontalAlignment = Enum.HorizontalAlignment.Center,
-		SortOrder = Enum.SortOrder.LayoutOrder,
-		Parent = content,
+	-- How far through the hour you've played.
+	local track = Widgets.create("Frame", {
+		Size = UDim2.new(1, 0, 0, 22),
+		BackgroundColor3 = Widgets.NAVY_LIGHT,
+		Parent = outer,
+	}, { Widgets.corner(11) })
+	local fill = Widgets.create("Frame", {
+		Size = UDim2.fromScale(0, 1),
+		BackgroundColor3 = Widgets.GOLD,
+		Parent = track,
+	}, { Widgets.corner(11) })
+	local content = Widgets.create("Frame", {
+		Position = UDim2.fromOffset(0, 40),
+		Size = UDim2.new(1, 0, 1, -40),
+		BackgroundTransparency = 1,
+		Parent = outer,
+	}, {
+		Widgets.create("UIGridLayout", {
+			CellSize = UDim2.fromOffset(196, 230),
+			CellPadding = UDim2.fromOffset(14, 14),
+			HorizontalAlignment = Enum.HorizontalAlignment.Center,
+			SortOrder = Enum.SortOrder.LayoutOrder,
+		}),
 	})
 
 	local tiles: { Tile } = {}
@@ -72,6 +89,8 @@ function Gifts.new(gui: ScreenGui)
 		end
 		local session = Profile.session()
 		local played = if session then workspace:GetServerTimeNow() - session.joinedAt else 0
+		local last = Economy.GIFTS[#Economy.GIFTS].minutes * 60
+		fill.Size = UDim2.fromScale(math.clamp(played / last, 0, 1), 1)
 		for index, gift in Economy.GIFTS do
 			local tile = tiles[index]
 			local claimed = session and session.gifts[tostring(index)]

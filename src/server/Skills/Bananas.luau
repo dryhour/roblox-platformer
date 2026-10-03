@@ -1,5 +1,5 @@
--- Chimpanzini Bananini (the doc's Apple Ball): leaves a banana floating behind it every 3 seconds. Rolling over your
--- own banana heals 15%; when the other ball touches one, it explodes.
+-- Chimpanzini Bananini (the doc's Apple Ball): leaves a banana floating behind it every 3
+-- seconds. Touching your own banana heals 15%; when the other ball touches one, it explodes.
 local Bananas = {}
 
 local DROP_EVERY = 3
@@ -65,7 +65,7 @@ function Bananas.onTick(battle, ball)
 		local used = age > LIFETIME
 		if not used and age > ARM_TIME then
 			if touching(ball, banana.part) then
-				battle:heal(ball, ball.maxHp * HEAL)
+				battle:heal(ball, ball.def.stats.health * HEAL)
 				used = true
 			else
 				for _, enemy in battle:enemiesOf(ball) do

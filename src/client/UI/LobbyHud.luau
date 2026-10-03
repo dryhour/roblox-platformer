@@ -9,16 +9,22 @@ local Action = require(script.Parent.Parent.Action)
 local MyMatch = require(script.Parent.Parent.MyMatch)
 local Profile = require(script.Parent.Parent.Profile)
 local BallIcon = require(script.Parent.BallIcon)
+local Daily = require(script.Parent.Daily)
+local Fly = require(script.Parent.Fly)
+local Mail = require(script.Parent.Mail)
+local Store = require(script.Parent.Store)
 local Widgets = require(script.Parent.Widgets)
 local Windows = require(script.Parent.Windows)
 
 -- The lobby HUD, laid out like the reference game:
---   top bar      your avatar (Profile), a gift with a count (Gifts) and a gear (Settings)
+--   top bar      your avatar (Profile), a gift with a count (Online Rewards), a gear (Settings),
+--                and a menu: Daily Rewards, Online Rewards, Codes, Mail and Updates, with counts
+--                of anything waiting to be claimed
 --   left         Store, Inventory, and Emotes (R)
 --   bottom left  coins, gems (+ opens the Store) and any x2 EXP timer
 --   bottom       the next level's reward, and Play (joins whoever's waiting, or a free station)
 --   top right    Daily Quests and Trade tabs, and Quick Join when someone's waiting
--- Hidden while you wait at a station or play a match (coins and gems stay up in the draft).
+-- Hidden while you wait at a station or play a match, to keep the screen clear.
 local LobbyHud = {}
 
 local HEADSHOT = "rbxthumb://type=AvatarHeadShot&id=%d&w=150&h=150"
@@ -70,10 +76,12 @@ local function sideButton(parent: Instance, emoji: string, word: string, y: numb
 		Position = UDim2.new(0, 0, 0, y),
 		Size = UDim2.fromOffset(96, 104),
 		BackgroundColor3 = Widgets.NAVY,
+		BackgroundTransparency = Widgets.PANEL_TRANSPARENCY,
 		Text = "",
 		Parent = parent,
 	}, {
-		Widgets.create("UIStroke", { ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Thickness = 3, Color = Widgets.EDGE }),
+		Widgets.corner(Widgets.ROUND),
+		Widgets.create("UIStroke", { ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Thickness = 2, Color = Widgets.EDGE }),
 	})
 	Widgets.create("TextLabel", {
 		Position = UDim2.fromOffset(8, 4),
@@ -139,15 +147,89 @@ function LobbyHud.new(gui: ScreenGui)
 	Widgets.create("TextLabel", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Text = "⚙️", TextScaled = true, Parent = settingsButton }, {
 		Widgets.create("UIPadding", { PaddingTop = UDim.new(0.18, 0), PaddingBottom = UDim.new(0.18, 0) }),
 	})
+	-- A count in the corner of a top bar button.
+	local function addBadge(button: GuiObject): TextLabel
+		local label = Widgets.title("", 14, {
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.new(1, -4, 0, 4),
+			Size = UDim2.fromOffset(22, 22),
+			AutomaticSize = Enum.AutomaticSize.None,
+			BackgroundColor3 = Color3.fromRGB(240, 60, 60),
+			BackgroundTransparency = 0,
+			Visible = false,
+			Parent = button,
+		})
+		Widgets.create("UICorner", { CornerRadius = UDim.new(1, 0), Parent = label })
+		return label
+	end
+
+	-- The menu and its dropdown.
+	local menuOpen = false
+	local dropdown = Widgets.box({
+		Size = UDim2.fromOffset(260, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		Visible = false,
+		Parent = topbar,
+	})
+	Widgets.create("UIListLayout", { Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder, Parent = dropdown })
+	Widgets.create("UIPadding", {
+		PaddingTop = UDim.new(0, 6),
+		PaddingBottom = UDim.new(0, 6),
+		PaddingLeft = UDim.new(0, 6),
+		PaddingRight = UDim.new(0, 6),
+		Parent = dropdown,
+	})
+	local menuBadges: { [string]: TextLabel } = {}
+	for index, item in {
+		{ window = "Daily", emoji = "📅", text = "Daily Rewards" },
+		{ window = "Gifts", emoji = "🎁", text = "Online Rewards" },
+		{ window = "Codes", emoji = "🎟️", text = "Codes" },
+		{ window = "Mail", emoji = "✉️", text = "Mail" },
+		{ window = "Updates", emoji = "📰", text = "Updates" },
+	} do
+		local row = Widgets.create("TextButton", {
+			LayoutOrder = index,
+			Size = UDim2.new(1, 0, 0, 48),
+			BackgroundColor3 = Widgets.NAVY_LIGHT,
+			Text = "",
+			Parent = dropdown,
+		}, { Widgets.corner(6) })
+		Widgets.create("TextLabel", { Position = UDim2.fromOffset(8, 6), Size = UDim2.fromOffset(36, 36), BackgroundTransparency = 1, Text = item.emoji, TextScaled = true, Parent = row })
+		Widgets.body(item.text, 24, {
+			Position = UDim2.fromOffset(54, 0),
+			Size = UDim2.new(1, -90, 1, 0),
+			AutomaticSize = Enum.AutomaticSize.None,
+			Parent = row,
+		})
+		local count = addBadge(row)
+		count.AnchorPoint = Vector2.new(1, 0.5)
+		count.Position = UDim2.new(1, -8, 0.5, 0)
+		menuBadges[item.window] = count
+		row.Activated:Connect(function()
+			menuOpen = false
+			dropdown.Visible = false
+			Windows.open(item.window)
+		end)
+	end
+	local menuButton = circleButton(topbar, function()
+		menuOpen = not menuOpen
+		dropdown.Visible = menuOpen
+	end)
+	Widgets.create("TextLabel", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Text = "☰", TextScaled = true, TextColor3 = Widgets.TEXT, Parent = menuButton }, {
+		Widgets.create("UIPadding", { PaddingTop = UDim.new(0.2, 0), PaddingBottom = UDim.new(0.2, 0) }),
+	})
+	local menuBadge = addBadge(menuButton)
+
 	local function layoutTopbar()
 		local inset = GuiService.TopbarInset
 		local height = if inset.Height > 0 then inset.Height else 44
 		local size = height - 10
 		local x = if inset.Height > 0 then inset.Min.X + 6 else 120
-		for index, button in { profileButton, giftButton, settingsButton } do
+		for index, button in { profileButton, giftButton, settingsButton, menuButton } do
 			button.Size = UDim2.fromOffset(size, size)
 			button.Position = UDim2.fromOffset(x + (index - 1) * (size + 8), inset.Min.Y + 5)
 		end
+		dropdown.Position = UDim2.fromOffset(menuButton.Position.X.Offset, inset.Min.Y + height + 4)
 	end
 	GuiService:GetPropertyChangedSignal("TopbarInset"):Connect(layoutTopbar)
 	layoutTopbar()
@@ -160,13 +242,14 @@ function LobbyHud.new(gui: ScreenGui)
 		BackgroundTransparency = 1,
 		Parent = root,
 	})
-	Widgets.fit(left)
+	Widgets.fit(left, 150, 0.16)
 	sideButton(left, "🎰", "Store", 52, function()
 		Windows.toggle("Store")
 	end)
-	sideButton(left, "📦", "Inventory", 172, function()
+	local inventoryButton = sideButton(left, "📦", "Inventory", 172, function()
 		Windows.toggle("Inventory")
 	end)
+	Fly.setTarget("inventory", inventoryButton)
 	local function toggleEmotes()
 		GuiService:SetEmotesMenuOpen(not GuiService:GetEmotesMenuOpen())
 	end
@@ -175,10 +258,12 @@ function LobbyHud.new(gui: ScreenGui)
 		Position = UDim2.fromOffset(0, 262),
 		Size = UDim2.fromOffset(150, 48),
 		BackgroundColor3 = Widgets.NAVY,
+		BackgroundTransparency = Widgets.PANEL_TRANSPARENCY,
 		Text = "",
 		Parent = left,
 	}, {
-		Widgets.create("UIStroke", { ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Thickness = 3, Color = Widgets.EDGE }),
+		Widgets.corner(Widgets.ROUND),
+		Widgets.create("UIStroke", { ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Thickness = 2, Color = Widgets.EDGE }),
 	})
 	Widgets.create("TextLabel", { Position = UDim2.fromOffset(4, 6), Size = UDim2.fromOffset(36, 36), BackgroundTransparency = 1, Text = "🕺", TextScaled = true, Parent = emotes })
 	Widgets.title("Emotes", 18, { Position = UDim2.fromOffset(40, 0), Size = UDim2.fromOffset(76, 48), AutomaticSize = Enum.AutomaticSize.None, Parent = emotes })
@@ -202,7 +287,7 @@ function LobbyHud.new(gui: ScreenGui)
 		BackgroundTransparency = 1,
 		Parent = gui,
 	})
-	Widgets.fit(wallet)
+	Widgets.fit(wallet, 260, 0.28)
 	local function walletRow(y: number, icon: GuiObject, color: Color3): TextLabel
 		local strip = Widgets.create("Frame", {
 			Position = UDim2.fromOffset(20, y + 10),
@@ -241,8 +326,17 @@ function LobbyHud.new(gui: ScreenGui)
 		TextColor3 = Widgets.CYAN,
 		Parent = boost,
 	})
-	local coins = walletRow(54, Widgets.coin(66), Color3.fromRGB(255, 175, 40))
-	local gems = walletRow(124, Widgets.gem(72), Widgets.CYAN)
+	local coinIcon = Widgets.coin(66)
+	local gemIcon = Widgets.gem(72)
+	local coins = walletRow(54, coinIcon, Color3.fromRGB(255, 175, 40))
+	local gems = walletRow(124, gemIcon, Widgets.CYAN)
+	Fly.setTarget("coins", coinIcon)
+	Fly.setTarget("gems", gemIcon)
+	-- The counters count up toward your real totals (holding still while coins are flying in),
+	-- flashing bright as they go.
+	local shown = { coins = -1, gems = -1 }
+	local counterColors = { coins = coins.TextColor3, gems = gems.TextColor3 }
+	local counters = { coins = coins, gems = gems }
 	local plus = Widgets.title("+", 34, {
 		Position = UDim2.fromOffset(-8, 156),
 		Size = UDim2.fromOffset(34, 34),
@@ -257,7 +351,7 @@ function LobbyHud.new(gui: ScreenGui)
 		Parent = wallet,
 	})
 	plusButton.Activated:Connect(function()
-		Windows.open("Store")
+		Store.open("Gems")
 	end)
 	plus.ZIndex = 2
 
@@ -269,7 +363,7 @@ function LobbyHud.new(gui: ScreenGui)
 		BackgroundTransparency = 1,
 		Parent = root,
 	})
-	Widgets.fit(bottom)
+	Widgets.fit(bottom, 300, 0.34)
 	local rewardPlate = Widgets.create("Frame", {
 		AnchorPoint = Vector2.new(0.5, 0),
 		Position = UDim2.fromScale(0.5, 0),
@@ -314,7 +408,7 @@ function LobbyHud.new(gui: ScreenGui)
 		BackgroundTransparency = 1,
 		Parent = root,
 	})
-	Widgets.fit(right)
+	Widgets.fit(right, PANEL_WIDTH + 20, 0.3)
 	local tab = "Quests"
 	local tabs = {}
 	local function tabButton(name: string, emoji: string, word: string, x: number, width: number): TextButton
@@ -325,6 +419,7 @@ function LobbyHud.new(gui: ScreenGui)
 			Text = "",
 			Parent = right,
 		}, {
+			Widgets.corner(Widgets.ROUND),
 			Widgets.create("UIStroke", { ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Thickness = 2, Color = Widgets.EDGE }),
 		})
 		Widgets.create("TextLabel", { Position = UDim2.fromOffset(6, 6), Size = UDim2.fromOffset(34, 34), BackgroundTransparency = 1, Text = emoji, TextScaled = true, Parent = button })
@@ -338,11 +433,9 @@ function LobbyHud.new(gui: ScreenGui)
 		tabs[name] = button
 		return button
 	end
-	local panel = Widgets.create("Frame", {
+	local panel = Widgets.box({
 		Position = UDim2.fromOffset(20, 52),
 		Size = UDim2.fromOffset(PANEL_WIDTH, 260),
-		BackgroundColor3 = Widgets.NAVY,
-		BackgroundTransparency = 0.25,
 		Parent = right,
 	})
 
@@ -363,7 +456,7 @@ function LobbyHud.new(gui: ScreenGui)
 			BackgroundColor3 = Widgets.NAVY_LIGHT,
 			BackgroundTransparency = 0.3,
 			Parent = questsPage,
-		})
+		}, { Widgets.corner(8) })
 		local name = Widgets.body(quest.text, 24, {
 			Position = UDim2.fromOffset(6, 2),
 			Size = UDim2.new(1, -90, 0, 30),
@@ -401,7 +494,18 @@ function LobbyHud.new(gui: ScreenGui)
 		})
 		button.FontFace = Widgets.TITLE_FONT
 		button.Activated:Connect(function()
-			Action.send("ClaimQuest", quest.id)
+			if button.Text ~= "Claim" then
+				return
+			end
+			local release = Fly.hold("coins")
+			task.spawn(function()
+				local ok = Action.call("ClaimQuest", quest.id)
+				if ok then
+					Fly.currency("coins", button.AbsolutePosition + button.AbsoluteSize / 2, release)
+				else
+					release()
+				end
+			end)
 		end)
 		questRows[index] = { name = name, progress = progress, button = button }
 	end
@@ -507,11 +611,9 @@ function LobbyHud.new(gui: ScreenGui)
 		TextXAlignment = Enum.TextXAlignment.Right,
 		Parent = quick,
 	})
-	local quickRow = Widgets.create("Frame", {
+	local quickRow = Widgets.box({
 		Position = UDim2.fromOffset(0, 42),
 		Size = UDim2.new(1, 0, 0, 74),
-		BackgroundColor3 = Widgets.NAVY,
-		BackgroundTransparency = 0.25,
 		Parent = quick,
 	})
 	local function quickFace(x: number): (ImageLabel, UIStroke, TextLabel)
@@ -606,14 +708,12 @@ function LobbyHud.new(gui: ScreenGui)
 		local waiting = MyMatch.waitingSide() ~= ""
 		root.Visible = not inMatch and not waiting
 		topbar.Enabled = root.Visible
-		wallet.Visible = not waiting and (not inMatch or MyMatch.phase() == "Draft")
+		wallet.Visible = not waiting and not inMatch
 
 		local profile = Profile.get()
 		if not profile then
 			return
 		end
-		coins.Text = tostring(profile.coins)
-		gems.Text = tostring(profile.gems)
 		rewardText.Text = `Lv {profile.level + 1} Reward`
 		setRewardIcon(Economy.levelReward(profile.level + 1))
 
@@ -629,6 +729,21 @@ function LobbyHud.new(gui: ScreenGui)
 		local ready = LobbyHud.giftsReady()
 		badge.Text = tostring(ready)
 		badge.Visible = ready > 0
+		local _, dailyReady = Daily.state()
+		local counts = { Daily = if dailyReady then 1 else 0, Gifts = ready, Mail = Mail.unread() }
+		local total = 0
+		for window, menuItemBadge in menuBadges do
+			local count = counts[window] or 0
+			total += count
+			menuItemBadge.Text = tostring(count)
+			menuItemBadge.Visible = count > 0
+		end
+		menuBadge.Text = tostring(total)
+		menuBadge.Visible = total > 0
+		if not root.Visible then
+			menuOpen = false
+			dropdown.Visible = false
+		end
 
 		if tab == "Trade" then
 			refreshTradeList()
@@ -641,6 +756,18 @@ function LobbyHud.new(gui: ScreenGui)
 			return
 		end
 		local profile = Profile.get()
+		for kind, label in counters do
+			local real = if profile then profile[kind] else 0
+			if shown[kind] < 0 or real < shown[kind] then
+				shown[kind] = real
+			elseif real > shown[kind] and not Fly.held(kind) then
+				shown[kind] = math.min(real, shown[kind] + math.max(1, math.ceil((real - shown[kind]) * 0.12)))
+				label.TextColor3 = Color3.fromRGB(255, 255, 160)
+			else
+				label.TextColor3 = label.TextColor3:Lerp(counterColors[kind], 0.15)
+			end
+			label.Text = tostring(shown[kind])
+		end
 		local boostLeft = if profile then profile.boostUntil - now() else 0
 		boost.Visible = boostLeft > 0
 		boostText.Text = `⚡ EXPx2 {Widgets.clock(boostLeft)}`
@@ -656,7 +783,17 @@ function LobbyHud.new(gui: ScreenGui)
 		end
 	end)
 
-	return { refresh = refresh, tick = tick }
+	-- The first quest's Claim button, if one is ready (the tutorial points at it).
+	local function claimable(): GuiObject?
+		for _, row in questRows do
+			if row.button.Text == "Claim" and root.Visible then
+				return row.button
+			end
+		end
+		return nil
+	end
+
+	return { refresh = refresh, tick = tick, play = play, claimable = claimable }
 end
 
 return LobbyHud

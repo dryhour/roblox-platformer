@@ -22,6 +22,7 @@ function Frost.onEnemyHit(battle, ball, enemy)
 	ice.CanTouch = false
 	ice.Position = enemy.core.Position
 	battle:own(ball, ice)
+	battle:follow(ice, enemy)
 	table.insert(ball.state.ice, { part = ice, target = enemy, untilTime = os.clock() + FREEZE_TIME })
 end
 

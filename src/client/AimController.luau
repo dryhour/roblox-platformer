@@ -9,10 +9,10 @@ local Config = require(Shared:WaitForChild("Config"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local MyMatch = require(script.Parent.MyMatch)
 
--- Aiming your launch. A line shows where your ball will go, bouncing off the walls of the
--- upright arena; point at where you want it to go, then lock it in:
+-- Aiming your launch. A short dotted arrow shows which way your ball will go; point where you
+-- want it to go, then lock it in (the HUD's Lock Aim button works for everyone):
 --   mouse     move to aim, click to lock
---   touch     drag to aim, let go to lock
+--   touch     drag to aim (as often as you like), then Lock Aim
 --   gamepad   left stick to aim, A to lock
 --   keyboard  W/S or Up/Down to aim higher or lower, Space or Enter to lock
 -- If time runs out first, the server uses wherever you were aiming.
@@ -21,9 +21,11 @@ local AimController = {}
 local SEND_EVERY = 0.1
 local KEY_TURN_SPEED = math.rad(120) -- radians per second
 local STICK_DEADZONE = 0.4
-local LINE_BOUNCES = 3
-local LINE_LENGTH = Config.ARENA_SIZE * 2.5
-local LINE_THICKNESS = 0.3
+local ARROW_LENGTH = Config.BALL_SIZE * 1.5 -- just a little way past the ball's edge
+local DOT_SIZE = 0.45
+local DOT_GAP = 0.9
+local HEAD_LENGTH = 1.3
+local HEAD_ANGLE = math.rad(35)
 local AIMING_COLOR = Color3.fromRGB(255, 255, 255)
 local LOCKED_COLOR = Color3.fromRGB(90, 230, 110)
 
@@ -33,7 +35,8 @@ local dirty = false
 local lastSentAt = 0
 local stick = Vector2.zero
 local lineFolder: Folder
-local lineParts: { Part } = {}
+local dots: { Part } = {}
+local head: { Part } = {}
 
 -- True once you've locked your aim this round.
 function AimController.isLocked(): boolean
@@ -101,34 +104,57 @@ local function lock()
 	end
 end
 
-local function drawLine(points: { Vector3 }?)
-	local count = if points then #points - 1 else 0
-	for index = 1, math.max(count, #lineParts) do
-		local part = lineParts[index]
-		if index > count then
-			if part then
-				part.Transparency = 1
-			end
-			continue
+-- Locks in your aim, e.g. from the Lock Aim button.
+AimController.lock = lock
+
+local function linePart(): Part
+	local part = Instance.new("Part")
+	part.Anchored = true
+	part.CanCollide = false
+	part.CanQuery = false
+	part.CanTouch = false
+	part.CastShadow = false
+	part.Material = Enum.Material.Neon
+	part.Transparency = 1
+	part.Parent = lineFolder
+	return part
+end
+
+-- A row of dots from the edge of the ball, ending in an arrowhead. Hides it for nil.
+local function drawArrow(core: BasePart?, direction: Vector3?, axis: Vector3?)
+	local count = 0
+	local color = if locked then LOCKED_COLOR else AIMING_COLOR
+	local tip: Vector3? = nil
+	if core and direction and axis then
+		local radius = core.Size.X / 2
+		local start = core.Position + direction * (radius + 0.6)
+		count = math.floor(ARROW_LENGTH / DOT_GAP)
+		for index = 1, count do
+			local dot = dots[index] or linePart()
+			dots[index] = dot
+			dot.Shape = Enum.PartType.Ball
+			dot.Size = Vector3.one * DOT_SIZE
+			dot.Position = start + direction * (index - 1) * DOT_GAP
+			dot.Color = color
+			dot.Transparency = 0
 		end
-		if not part then
-			part = Instance.new("Part")
-			part.Anchored = true
-			part.CanCollide = false
-			part.CanQuery = false
-			part.CanTouch = false
-			part.CastShadow = false
-			part.Material = Enum.Material.Neon
-			part.Parent = lineFolder
-			lineParts[index] = part
+		tip = start + direction * (count - 1) * DOT_GAP + direction * HEAD_LENGTH
+	end
+	for index = count + 1, #dots do
+		dots[index].Transparency = 1
+	end
+	for index, sign in { 1, -1 } do
+		local arm = head[index] or linePart()
+		head[index] = arm
+		if tip and direction and axis then
+			local back = tip - AimMath.rotate(direction, sign * HEAD_ANGLE, axis) * HEAD_LENGTH
+			arm.Size = Vector3.new(DOT_SIZE, DOT_SIZE, HEAD_LENGTH + DOT_SIZE)
+			arm.CFrame = CFrame.lookAt((tip + back) / 2, tip, axis)
+			arm.Color = color
+			arm.Transparency = 0
+		else
+			arm.Transparency = 1
 		end
-		local from, to = (points :: { Vector3 })[index], (points :: { Vector3 })[index + 1]
-		local length = (to - from).Magnitude
-		part.Size = Vector3.new(LINE_THICKNESS, LINE_THICKNESS, math.max(length, 0.1))
-		part.CFrame = CFrame.lookAt((from + to) / 2, to + Vector3.new(0, 0.001, 0))
-		part.Color = if locked then LOCKED_COLOR else AIMING_COLOR
-		-- Later bounces fade, so the first leg reads clearly.
-		part.Transparency = 0.1 + 0.2 * (index - 1)
 	end
 end
 
@@ -149,7 +175,7 @@ function AimController.start()
 
 		local core, forward, axis = aiming()
 		if not core or not forward or not axis then
-			drawLine(nil)
+			drawArrow(nil, nil, nil)
 			return
 		end
 
@@ -186,11 +212,7 @@ function AimController.start()
 			end
 		end
 
-		local arena = MyMatch.arena()
-		local walls = arena and arena:FindFirstChild("Walls")
-		if walls then
-			drawLine(AimMath.trace(core.Position, AimMath.rotate(forward, angle, axis), axis, walls, LINE_BOUNCES, LINE_LENGTH))
-		end
+		drawArrow(core, AimMath.rotate(forward, angle, axis), axis)
 	end)
 
 	UserInputService.InputChanged:Connect(function(input)
@@ -227,10 +249,7 @@ function AimController.start()
 		end
 	end)
 	UserInputService.InputEnded:Connect(function(input)
-		if touchAiming[input] then
-			touchAiming[input] = nil
-			lock()
-		end
+		touchAiming[input] = nil
 	end)
 end
 

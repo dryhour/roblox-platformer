@@ -22,6 +22,7 @@ function BlackHole.onLowHealth(battle, ball)
 	field.CanQuery = false
 	field.CanTouch = false
 	battle:own(ball, field)
+	battle:follow(field, ball)
 	ball.state.field = field
 
 	for _, enemy in battle:enemiesOf(ball) do

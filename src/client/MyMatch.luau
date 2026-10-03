@@ -24,9 +24,18 @@ function MyMatch.state(): Configuration?
 	return if state and state:IsA("Configuration") then state else nil
 end
 
--- Where your arena is and which way its front faces (toward you), once you're in a match.
+-- The arena you're waiting at, if you're waiting at a station.
+function MyMatch.waitingArena(): Model?
+	local id = player:GetAttribute("WaitingAt")
+	local arenas = workspace:FindFirstChild("Arenas")
+	local arena = if typeof(id) == "string" and id ~= "" and arenas then arenas:FindFirstChild(id) else nil
+	return if arena and arena:IsA("Model") then arena else nil
+end
+
+-- Where your arena is and which way its front faces (toward you), once you're in a match or
+-- waiting at its station.
 function MyMatch.frame(): (Vector3?, Vector3?)
-	local arena = MyMatch.arena()
+	local arena = MyMatch.arena() or MyMatch.waitingArena()
 	local center = arena and arena:GetAttribute("Center")
 	local facing = arena and arena:GetAttribute("Facing")
 	if typeof(center) == "Vector3" and typeof(facing) == "Vector3" then

@@ -10,7 +10,7 @@ Config.BOT_JOIN_AFTER = 15 -- seconds alone at a station before a bot takes the 
 
 -- Round phases
 Config.DRAFT_TIME = 25
-Config.AIM_TIME = 6
+Config.AIM_TIME = 30 -- launches early once both sides lock in
 Config.BATTLE_TIME = 45 -- if both balls survive, the one with more health left wins the round
 Config.RESOLVE_TIME = 4
 Config.MATCH_OVER_TIME = 6
@@ -23,9 +23,10 @@ Config.MIN_ARENA_HALF_WIDTH = 5
 Config.SUDDEN_DEATH_DAMAGE = 2.5
 
 -- Arena and balls. The arena is an upright square box, like a screen standing on its edge; balls
--- bounce around inside it with no gravity.
+-- bounce around inside it with no gravity (see Bounce).
 Config.ARENA_SIZE = 24 -- inside width and height
 Config.BALL_SIZE = 4
+Config.BALL_HEALTH = 100 -- every ball starts with this; tougher ones lose less per hit
 Config.AIM_ARC = math.rad(85) -- how far from straight ahead you can aim, each way
 
 -- Damage when balls collide, for each ball:

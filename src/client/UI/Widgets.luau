@@ -15,12 +15,15 @@ Widgets.ACCENT = Color3.fromRGB(255, 196, 40)
 Widgets.GOOD = Color3.fromRGB(70, 200, 110)
 Widgets.BAD = Color3.fromRGB(240, 80, 80)
 
--- The lobby's look: dark navy panels with bright blue edges, and chunky colored buttons.
-Widgets.NAVY = Color3.fromRGB(14, 20, 42)
-Widgets.NAVY_LIGHT = Color3.fromRGB(30, 40, 72)
-Widgets.EDGE = Color3.fromRGB(70, 120, 255)
+-- The look: matte dark slate panels, a little see-through, with rounded corners and soft grey
+-- edges, and chunky colored buttons.
+Widgets.NAVY = Color3.fromRGB(26, 28, 35) -- #1A1C23
+Widgets.NAVY_LIGHT = Color3.fromRGB(40, 44, 55)
+Widgets.EDGE = Color3.fromRGB(61, 68, 85) -- #3D4455
+Widgets.PANEL_TRANSPARENCY = 0.15
+Widgets.ROUND = 12
 Widgets.GREEN = Color3.fromRGB(110, 200, 40)
-Widgets.BLUE = Color3.fromRGB(60, 120, 245)
+Widgets.BLUE = Color3.fromRGB(70, 115, 220)
 Widgets.RED = Color3.fromRGB(205, 35, 30)
 Widgets.PURPLE = Color3.fromRGB(130, 120, 230)
 Widgets.GREY = Color3.fromRGB(90, 95, 110)
@@ -192,14 +195,15 @@ function Widgets.bigButton(text: string, color: Color3, onClick: () -> (), props
 		TextColor3 = Widgets.TEXT,
 		Size = UDim2.fromOffset(220, 56),
 	}, props), {
+		Widgets.corner(10),
 		Widgets.create("UIStroke", {
 			ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
-			Thickness = 3,
+			Thickness = 2,
 			Color = color:Lerp(Color3.new(), 0.45),
 		}),
 		Widgets.create("UIGradient", {
 			Rotation = 90,
-			Color = ColorSequence.new(Color3.new(1, 1, 1), Color3.fromRGB(190, 190, 190)),
+			Color = ColorSequence.new(Color3.new(1, 1, 1), Color3.fromRGB(215, 215, 215)),
 		}),
 	})
 	button.FontFace = Widgets.TITLE_FONT
@@ -262,14 +266,15 @@ function Widgets.icon(kind: string, emoji: string, size: number, props: Props?):
 	}, props))
 end
 
--- A dark navy box with a bright blue edge.
+-- A matte slate panel with rounded corners and a soft grey edge.
 function Widgets.box(props: Props?): Frame
 	return Widgets.create("Frame", merge({
 		BackgroundColor3 = Widgets.NAVY,
+		BackgroundTransparency = Widgets.PANEL_TRANSPARENCY,
 		BorderSizePixel = 0,
 	}, props), {
-		Widgets.corner(6),
-		Widgets.create("UIStroke", { ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Thickness = 3, Color = Widgets.EDGE }),
+		Widgets.corner(Widgets.ROUND),
+		Widgets.create("UIStroke", { ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Thickness = 2, Color = Widgets.EDGE }),
 	})
 end
 
@@ -284,7 +289,8 @@ function Widgets.window(parent: Instance, title: string, size: Vector2, onClose:
 		Visible = false,
 		Parent = parent,
 	})
-	Widgets.fit(root)
+	-- The X sticks out past the corner.
+	Widgets.fit(root, size.X + 80)
 	Widgets.title(title, 46, {
 		AnchorPoint = Vector2.new(0.5, 0),
 		Position = UDim2.new(0.5, 0, 0, 10),
@@ -295,15 +301,16 @@ function Widgets.window(parent: Instance, title: string, size: Vector2, onClose:
 	local close = Widgets.create("TextButton", {
 		Name = "Close",
 		AnchorPoint = Vector2.new(0.5, 0.5),
-		Position = UDim2.new(1, 0, 0, 0),
-		Size = UDim2.fromOffset(76, 76),
-		BackgroundColor3 = Color3.fromRGB(150, 150, 155),
+		Position = UDim2.new(1, -8, 0, 8),
+		Size = UDim2.fromOffset(64, 64),
+		BackgroundColor3 = Widgets.NAVY_LIGHT,
 		Text = "X",
-		TextSize = 54,
+		TextSize = 40,
 		TextColor3 = Widgets.TEXT,
 		Parent = root,
 	}, {
-		Widgets.create("UIStroke", { ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Thickness = 3, Color = Color3.fromRGB(40, 40, 45) }),
+		Widgets.corner(Widgets.ROUND),
+		Widgets.create("UIStroke", { ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Thickness = 2, Color = Widgets.EDGE }),
 	})
 	close.FontFace = Widgets.TITLE_FONT
 	close.TextStrokeTransparency = 0
@@ -328,23 +335,44 @@ function Widgets.clock(seconds: number): string
 	return string.format("%02d:%02d", minutes, secs)
 end
 
--- Shrinks a piece of UI to fit short screens, like phones in landscape (UI.start sets the
--- scale). Give it to each group pinned to a corner or edge rather than the whole ScreenGui, so
--- groups pinned to the right or bottom stay there.
-local fitted: { UIScale } = {}
-local fitScale = 1
+-- Scales a piece of UI to the screen (UI.start says how big the screen is). Give it to each
+-- group pinned to a corner or edge rather than the whole ScreenGui, so groups pinned to the
+-- right or bottom stay there. It follows the screen's height; give `width` (the group's width
+-- in design pixels) and `share` (the most of the screen's width it may take) to also keep it
+-- from crowding narrow screens. Calling it again on the same group changes those.
+type Fitted = { scale: UIScale, width: number?, share: number }
 
-function Widgets.fit(object: GuiObject)
-	local scale = Instance.new("UIScale")
-	scale.Scale = fitScale
-	scale.Parent = object
-	table.insert(fitted, scale)
+local fitted: { [GuiObject]: Fitted } = {}
+local fitScale = 1
+local screenWidth = 1920
+
+local function apply(entry: Fitted)
+	local scale = fitScale
+	if entry.width then
+		scale = math.min(scale, screenWidth * entry.share / entry.width)
+	end
+	entry.scale.Scale = scale
 end
 
-function Widgets.setFitScale(scale: number)
+function Widgets.fit(object: GuiObject, width: number?, share: number?)
+	local entry = fitted[object]
+	if not entry then
+		local scale = Instance.new("UIScale")
+		scale.Parent = object
+		entry = { scale = scale, width = width, share = share or 0.95 }
+		fitted[object] = entry
+	else
+		entry.width = width
+		entry.share = share or 0.95
+	end
+	apply(entry :: Fitted)
+end
+
+function Widgets.setFitScale(scale: number, width: number)
 	fitScale = scale
-	for _, uiScale in fitted do
-		uiScale.Scale = scale
+	screenWidth = width
+	for _, entry in fitted do
+		apply(entry)
 	end
 end
 

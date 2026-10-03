@@ -191,6 +191,9 @@ function Station.build(b: Builder.Builder, id: string, cframe: CFrame): Station
 		local x = SQUARE_X * sign
 
 		local tile = b:box(Vector3.new(SQUARE_SIZE, 0.2, SQUARE_SIZE), at(x, top + 0.1, SQUARE_Z), TILE, `{side}Square`)
+		-- So clients (the tutorial) can tell which station and side a square is.
+		tile:SetAttribute("Arena", id)
+		tile:SetAttribute("Side", side)
 		for _, offset in { Vector3.xAxis, -Vector3.xAxis, Vector3.zAxis, -Vector3.zAxis } do
 			local length = Vector3.new(math.abs(offset.Z), 0, math.abs(offset.X)) * (SQUARE_SIZE + 0.6)
 			local edge = b:box(

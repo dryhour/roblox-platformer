@@ -48,7 +48,8 @@ function Rewards.resolve(profile: Profile?, reward: Reward): Reward
 		return reward
 	end
 	if reward.kind == "ball" then
-		return { kind = "ball", id = Brainrots.roll(1, rng)[1] }
+		local weights = if reward.rarity then { [reward.rarity] = 1 } else nil
+		return { kind = "ball", id = Brainrots.roll(1, rng, nil, weights)[1] }
 	end
 	local owned = if profile then (if reward.kind == "flyer" then profile.flyers else profile.explosions) else nil
 	local id = randomCosmetic(reward.kind, owned)
@@ -64,6 +65,8 @@ function Rewards.apply(profile: Profile, reward: Reward)
 		profile.gems += amount
 	elseif reward.kind == "boost" then
 		profile.boostUntil = math.max(profile.boostUntil, now()) + amount
+	elseif reward.kind == "voucher" then
+		profile.vouchers += amount
 	elseif reward.kind == "ball" and reward.id then
 		profile.balls[reward.id] = (profile.balls[reward.id] or 0) + 1
 	elseif reward.kind == "flyer" and reward.id then
@@ -100,6 +103,33 @@ end
 -- Shows the reward spinning in. `filler` picks the other things in the strip.
 function Rewards.spin(player: Player, reward: Reward, filler: () -> Reward)
 	Rewards.notify(player, "Roll", strip(reward, filler))
+end
+
+-- How rare a reward is, for picking the best of several (0 for coins and such).
+local function rank(reward: Reward): number
+	local rarity = nil
+	if reward.kind == "ball" and reward.id then
+		rarity = Brainrots.get(reward.id).rarity
+	elseif reward.kind == "flyer" and reward.id then
+		local flyer = Cosmetics.flyer(reward.id)
+		rarity = flyer and flyer.rarity
+	elseif reward.kind == "explosion" and reward.id then
+		rarity = Cosmetics.explosion(reward.id).rarity
+	end
+	return if rarity then table.find(Economy.RARITY_ORDER, rarity) or 0 else 0
+end
+
+-- Shows several rewards at once: the strip stops on the best, then they all show together.
+function Rewards.spinMany(player: Player, rewards: { Reward }, filler: () -> Reward)
+	local best = rewards[1]
+	for _, reward in rewards do
+		if rank(reward) > rank(best) then
+			best = reward
+		end
+	end
+	local data: any = strip(best, filler)
+	data.rewards = rewards
+	Rewards.notify(player, "Roll", data)
 end
 
 -- Fillers for spins of each kind.
@@ -205,6 +235,54 @@ function Rewards.claimGift(player: Player, index: unknown): boolean
 	return reward ~= nil
 end
 
+-- Daily rewards
+
+function Rewards.claimLogin(player: Player): boolean
+	local claimed: Reward? = nil
+	Data.update(player, function(profile)
+		local today = Economy.day(now())
+		local nextDay, claimable = Economy.loginState(profile.loginDay, profile.loginStreak, today)
+		if claimable then
+			profile.loginDay = today
+			profile.loginStreak = nextDay
+			claimed = Rewards.resolve(profile, Economy.LOGIN_REWARDS[nextDay])
+			Rewards.apply(profile, claimed :: Reward)
+		end
+	end)
+	if claimed then
+		Rewards.notify(player, "Receive", { reward = claimed })
+	end
+	return claimed ~= nil
+end
+
+-- Mail
+
+function Rewards.claimMail(player: Player, id: unknown): boolean
+	local mail = nil
+	for _, entry in Economy.MAIL do
+		if entry.id == id then
+			mail = entry
+		end
+	end
+	if not mail then
+		return false
+	end
+	local claimed: Reward? = nil
+	Data.update(player, function(profile)
+		if not profile.mailClaimed[mail.id] then
+			profile.mailClaimed[mail.id] = true
+			if mail.reward then
+				claimed = Rewards.resolve(profile, mail.reward)
+				Rewards.apply(profile, claimed :: Reward)
+			end
+		end
+	end)
+	if claimed then
+		Rewards.notify(player, "Receive", { reward = claimed })
+	end
+	return true
+end
+
 -- Matches
 
 -- Pays out a finished match: coins for a win, XP, stats and quest progress. `friendly` is true if
@@ -212,6 +290,7 @@ end
 function Rewards.matchFinished(player: Player, won: boolean, friendly: boolean)
 	Data.update(player, function(profile)
 		freshQuests(profile)
+		profile.tutorialDone = true
 		profile.matches += 1
 		addProgress(profile, "Play", 1)
 		if won then

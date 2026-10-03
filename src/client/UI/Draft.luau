@@ -17,8 +17,8 @@ local Widgets = require(script.Parent.Widgets)
 
 -- The draft, like the reference game: the screen dims, "CHOOSE YOUR BALL" with a countdown,
 -- and three cards from your collection, each with the ball's name, picture and what it does.
--- Tap one to pick it. All Balls swaps the three for picks from every ball: free once a day, or
--- every round with the game pass.
+-- Tap one to pick it. All Balls swaps the three for picks from every ball: free once a day, with
+-- a "Pick Any Card" voucher, or every round with the game pass.
 local Draft = {}
 
 local CARD_WIDTH = 230
@@ -111,7 +111,7 @@ function Draft.new(gui: ScreenGui)
 		BackgroundTransparency = 1,
 		Parent = root,
 	})
-	Widgets.fit(content)
+	Widgets.fit(content, CARD_WIDTH * 3 + GAP * 2, 0.96)
 
 	local title = Widgets.title("", 44, {
 		Size = UDim2.new(1, 0, 0, 60),
@@ -185,12 +185,15 @@ function Draft.new(gui: ScreenGui)
 			card.icon.frame.ImageTransparency = if picked and not chosen then 0.6 else 0
 		end
 
-		-- All Balls: once per round, free once a day (the pass makes it always available).
+		-- All Balls: once per round, free once a day or with a voucher (the pass makes it always
+		-- available).
 		local profile = Profile.get()
 		local freeToday = profile ~= nil and profile.freeAllBallsDay ~= Economy.day(workspace:GetServerTimeNow())
+		local vouchers = if profile then profile.vouchers or 0 else 0
 		local used = player:GetAttribute("AllBallsUsed") == true
-		allBalls.Visible = not picked and not used and (freeToday or Economy.ALL_BALLS_PASS ~= 0)
-		free.Visible = freeToday
+		allBalls.Visible = not picked and not used and (freeToday or vouchers > 0 or Economy.ALL_BALLS_PASS ~= 0)
+		free.Visible = freeToday or vouchers > 0
+		free.Text = if freeToday or vouchers <= 1 then "Free" else `Free x{vouchers}`
 	end
 
 	local function tick()
@@ -205,7 +208,17 @@ function Draft.new(gui: ScreenGui)
 		end
 	end
 
-	return { refresh = refresh, tick = tick }
+	-- The middle card while you still need to pick (the tutorial points at it).
+	local function cardToPick(): GuiObject?
+		local pick = player:GetAttribute("DraftPick")
+		if not root.Visible or (typeof(pick) == "string" and pick ~= "") then
+			return nil
+		end
+		local card = cards[2] or cards[1]
+		return if card then card.button else nil
+	end
+
+	return { refresh = refresh, tick = tick, cardToPick = cardToPick }
 end
 
 return Draft

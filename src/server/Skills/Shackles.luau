@@ -28,6 +28,7 @@ function Shackles.onEnemyHit(battle, ball, enemy)
 	chain.CanQuery = false
 	chain.CanTouch = false
 	battle:own(ball, chain)
+	battle:follow(chain, ball, { ChainTo = enemy.side })
 	ball.state.chain = { part = chain, target = enemy, untilTime = now + CHAIN_TIME, owed = 0 }
 end
 

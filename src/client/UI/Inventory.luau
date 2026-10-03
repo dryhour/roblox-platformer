@@ -82,6 +82,7 @@ function Inventory.new(gui: ScreenGui)
 	end)
 	-- A little left of center, to leave room for the offers beside it.
 	root.Position = UDim2.fromScale(0.44, 0.52)
+	Widgets.fit(root, 900 + 16 + 180 + 60, 0.88)
 
 	local tab = "Balls"
 	local selected: Item? = nil

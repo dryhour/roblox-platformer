@@ -8,12 +8,15 @@ local Economy = require(Shared:WaitForChild("Economy"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local Sounds = require(script.Parent.Parent.Sounds)
 local BallIcon = require(script.Parent.BallIcon)
+local Fly = require(script.Parent.Fly)
 local Widgets = require(script.Parent.Widgets)
 
 -- Rewards arriving from the server (the Notify remote), one at a time:
 --   Roll     a strip of rewards spins past a marker and stops on yours (Skip jumps to the end),
---            then the Receive card shows it
+--            then the Receive card shows it; for an x10 roll, all ten show together
 --   Receive  a card with the reward's name and picture, glowing rays behind it, and Receive
+-- After Receive, items fly into the Inventory button and coins or gems into their counters
+-- (see Fly).
 local RewardPopups = {}
 
 local TILE = 150
@@ -22,7 +25,25 @@ local WINDOW_WIDTH = 1000
 local SPIN_TIME = 4.5
 
 type Reward = Economy.Reward
-type Item = { kind: string, data: any }
+type Item = { kind: string, data: any, releases: { [string]: () -> () } }
+
+-- Lets go of any counters held for an item's coins or gems.
+local function releaseAll(item: Item)
+	for _, release in item.releases do
+		release()
+	end
+end
+
+-- Sends a received reward on its way from `from`: coins and gems to their counters, anything
+-- else into the Inventory.
+local function flyAway(reward: Reward, from: Vector2, releases: { [string]: () -> () }, delay: number?)
+	if reward.kind == "coins" or reward.kind == "gems" then
+		Fly.currency(reward.kind, from, releases[reward.kind])
+	else
+		local _, emoji = Economy.describe(reward)
+		Fly.item(emoji, from, delay)
+	end
+end
 
 local function tile(reward: Reward, order: number): Frame
 	local name, emoji, color = Economy.describe(reward)
@@ -70,7 +91,7 @@ function RewardPopups.new(gui: ScreenGui)
 		BackgroundTransparency = 1,
 		Parent = root,
 	})
-	Widgets.fit(spinner)
+	Widgets.fit(spinner, WINDOW_WIDTH, 0.96)
 	local window = Widgets.create("Frame", {
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		Position = UDim2.fromScale(0.5, 0.4),
@@ -116,7 +137,7 @@ function RewardPopups.new(gui: ScreenGui)
 		Visible = false,
 		Parent = root,
 	})
-	Widgets.fit(card)
+	Widgets.fit(card, 520, 0.9)
 	local rays = Widgets.create("Frame", {
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		Position = UDim2.fromScale(0.5, 0.45),
@@ -181,6 +202,43 @@ function RewardPopups.new(gui: ScreenGui)
 		Parent = card,
 	})
 
+	-- All the rewards of an x10 roll, in a grid.
+	local summary = Widgets.box({
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.new(0.5, 0, 0.5, 50),
+		Size = UDim2.fromOffset(820, 470),
+		Visible = false,
+		Parent = root,
+	})
+	Widgets.fit(summary, 820, 0.96)
+	Widgets.title("You got", 34, {
+		Position = UDim2.fromOffset(0, 12),
+		Size = UDim2.new(1, 0, 0, 44),
+		AutomaticSize = Enum.AutomaticSize.None,
+		TextColor3 = Widgets.GOLD,
+		Parent = summary,
+	})
+	local summaryGrid = Widgets.create("Frame", {
+		Position = UDim2.fromOffset(20, 66),
+		Size = UDim2.new(1, -40, 0, 300),
+		BackgroundTransparency = 1,
+		Parent = summary,
+	}, {
+		Widgets.create("UIGridLayout", {
+			CellSize = UDim2.fromOffset(142, 142),
+			CellPadding = UDim2.fromOffset(12, 12),
+			HorizontalAlignment = Enum.HorizontalAlignment.Center,
+			SortOrder = Enum.SortOrder.LayoutOrder,
+		}),
+	})
+	local summaryReceive = Widgets.bigButton("Receive", Widgets.GREEN, function() end, {
+		AnchorPoint = Vector2.new(0.5, 1),
+		Position = UDim2.new(0.5, 0, 1, -16),
+		Size = UDim2.fromOffset(240, 64),
+		TextSize = 34,
+		Parent = summary,
+	})
+
 	local queue: { Item } = {}
 	local busy = false
 	local finishSpin: (() -> ())? = nil
@@ -196,6 +254,11 @@ function RewardPopups.new(gui: ScreenGui)
 			closeCard()
 		end
 	end)
+	summaryReceive.Activated:Connect(function()
+		if closeCard then
+			closeCard()
+		end
+	end)
 
 	local function select(button: GuiObject)
 		if UserInputService.GamepadEnabled then
@@ -204,7 +267,7 @@ function RewardPopups.new(gui: ScreenGui)
 	end
 
 	-- Shows the Receive card and waits until it's closed.
-	local function showCard(reward: Reward, title: string?)
+	local function showCard(reward: Reward, title: string?, releases: { [string]: () -> () })
 		local name, emoji, color = Economy.describe(reward)
 		heading.Text = title or ""
 		cardName.Text = name
@@ -236,10 +299,50 @@ function RewardPopups.new(gui: ScreenGui)
 			task.wait()
 		end
 		closeCard = nil
+		flyAway(reward, plate.AbsolutePosition + plate.AbsoluteSize / 2, releases)
 		card.Visible = false
 	end
 
-	local function spin(data: any)
+	-- Shows every reward of a multi-roll and waits until it's closed.
+	local function showSummary(rewards: { Reward }, releases: { [string]: () -> () })
+		Widgets.clear(summaryGrid)
+		for index, reward in rewards do
+			local item = tile(reward, index)
+			item.Size = UDim2.fromOffset(142, 142)
+			Widgets.body(item:GetAttribute("Name") :: string, 16, {
+				AnchorPoint = Vector2.new(0, 1),
+				Position = UDim2.new(0, 2, 1, -12),
+				Size = UDim2.new(1, -4, 0, 20),
+				AutomaticSize = Enum.AutomaticSize.None,
+				TextXAlignment = Enum.TextXAlignment.Center,
+				TextScaled = true,
+				TextStrokeTransparency = 0,
+				Parent = item,
+			})
+			item.Parent = summaryGrid
+		end
+		spinner.Visible = false
+		summary.Visible = true
+		Sounds.play("Reward")
+		select(summaryReceive)
+		local closed = false
+		closeCard = function()
+			closed = true
+		end
+		while not closed do
+			task.wait()
+		end
+		closeCard = nil
+		for index, item in summaryGrid:GetChildren() do
+			local reward = if item:IsA("GuiObject") then rewards[item.LayoutOrder] else nil
+			if reward then
+				flyAway(reward, (item :: GuiObject).AbsolutePosition + (item :: GuiObject).AbsoluteSize / 2, releases, index * 0.04)
+			end
+		end
+		summary.Visible = false
+	end
+
+	local function spin(data: any, releases: { [string]: () -> () })
 		Widgets.clear(strip)
 		for index, reward in data.strip do
 			tile(reward, index).Parent = strip
@@ -275,7 +378,11 @@ function RewardPopups.new(gui: ScreenGui)
 		end
 		finishSpin = nil
 		task.wait(0.4)
-		showCard(data.reward)
+		if typeof(data.rewards) == "table" and #data.rewards > 1 then
+			showSummary(data.rewards, releases)
+		else
+			showCard(data.reward, nil, releases)
+		end
 	end
 
 	local function run()
@@ -287,10 +394,12 @@ function RewardPopups.new(gui: ScreenGui)
 			local item = table.remove(queue, 1) :: Item
 			root.Visible = true
 			if item.kind == "Roll" then
-				spin(item.data)
+				spin(item.data, item.releases)
 			else
-				showCard(item.data.reward, item.data.title)
+				showCard(item.data.reward, item.data.title, item.releases)
 			end
+			-- Anything that didn't fly (say, the counter was hidden) still counts up.
+			task.delay(2, releaseAll, item)
 		end
 		root.Visible = false
 		GuiService.SelectedObject = nil
@@ -299,7 +408,15 @@ function RewardPopups.new(gui: ScreenGui)
 
 	Remotes.Notify.OnClientEvent:Connect(function(kind: string, data: any)
 		if (kind == "Roll" or kind == "Receive") and typeof(data) == "table" and data.reward then
-			table.insert(queue, { kind = kind, data = data })
+			-- The coin and gem counters wait for this reward's coins to fly in.
+			local releases = {}
+			local rewards = if typeof(data.rewards) == "table" then data.rewards else { data.reward }
+			for _, reward in rewards do
+				if (reward.kind == "coins" or reward.kind == "gems") and not releases[reward.kind] then
+					releases[reward.kind] = Fly.hold(reward.kind)
+				end
+			end
+			table.insert(queue, { kind = kind, data = data, releases = releases })
 			task.spawn(run)
 		end
 	end)
